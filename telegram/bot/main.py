@@ -8,7 +8,7 @@ from aiogram.exceptions import TelegramNotFound, TelegramBadRequest
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from .config import Config
-# from .handlers import register_handlers
+from .handlers import register_handlers
 from .services import setup_services, Services
 from .utils.commands import setup_commands, delete_commands
 from .middlewares import setup_middlewares
@@ -30,8 +30,8 @@ async def start_bot(bot: Bot, dp: Dispatcher):
 		# # Настройка middleware
 		setup_middlewares(dp)
 
-		# Регистрация обработчиков
-		# register_handlers(dp)
+                # Регистрация обработчиков
+                register_handlers(dp)
 
 		_, super_admins = await services.admin.list_admins()
 
