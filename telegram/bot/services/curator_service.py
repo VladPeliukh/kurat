@@ -2,7 +2,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
 from aiogram import Bot
 from ..utils.helpers import make_ref_code, build_deeplink
 
@@ -11,6 +12,7 @@ DATA_FILE = DATA_DIR / 'curators.json'
 PENDING_FILE = DATA_DIR / 'pending.json'
 CAPTCHA_PENDING_FILE = DATA_DIR / 'captcha_pending.json'
 CAPTCHA_PASSED_FILE = DATA_DIR / 'captcha_passed.json'
+SOURCES_FILE = DATA_DIR / 'sources.json'
 
 @dataclass
 class Curator:
@@ -20,6 +22,8 @@ class Curator:
     ref_code: Optional[str] = None
     invite_link: Optional[str] = None
     partners: List[dict] | None = None
+    source_link: Optional[str] = None
+    promoted_at: Optional[str] = None
 
     def to_dict(self): return asdict(self)
 
@@ -33,6 +37,7 @@ class CuratorService:
             (PENDING_FILE, "{}"),
             (CAPTCHA_PENDING_FILE, "{}"),
             (CAPTCHA_PASSED_FILE, "[]"),
+            (SOURCES_FILE, "{}"),
         )
         for file, default in defaults:
             if not file.exists():
@@ -45,12 +50,19 @@ class CuratorService:
     def _save(self, data: Dict[str, dict]) -> None:
         DATA_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
 
-    def _load_pending(self) -> Dict[str, int]:
+    def _load_pending(self) -> Dict[str, Any]:
         try: return json.loads(PENDING_FILE.read_text(encoding='utf-8') or '{}')
         except Exception: return {}
 
-    def _save_pending(self, data: Dict[str, int]) -> None:
+    def _save_pending(self, data: Dict[str, Any]) -> None:
         PENDING_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+    def _load_sources(self) -> Dict[str, dict]:
+        try: return json.loads(SOURCES_FILE.read_text(encoding='utf-8') or '{}')
+        except Exception: return {}
+
+    def _save_sources(self, data: Dict[str, dict]) -> None:
+        SOURCES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
 
     def _load_captcha_pending(self) -> Dict[str, dict]:
         try: return json.loads(CAPTCHA_PENDING_FILE.read_text(encoding='utf-8') or '{}')
@@ -74,6 +86,7 @@ class CuratorService:
     async def ensure_curator_record(self, user_id: int, username: Optional[str], full_name: str) -> Curator:
         data = self._load()
         key = str(user_id)
+        created = False
         if key not in data:
             data[key] = {
                 "user_id": user_id,
@@ -82,7 +95,32 @@ class CuratorService:
                 "ref_code": None,
                 "invite_link": None,
                 "partners": [],
+                "source_link": None,
+                "promoted_at": None,
             }
+            created = True
+        else:
+            record = data[key]
+            defaults = {
+                "partners": [],
+                "source_link": None,
+                "promoted_at": None,
+            }
+            updated = False
+            for field, default in defaults.items():
+                if field not in record:
+                    record[field] = default
+                    updated = True
+            if username and record.get("username") != username:
+                record["username"] = username
+                updated = True
+            if full_name and record.get("full_name") != full_name:
+                record["full_name"] = full_name
+                updated = True
+            if updated:
+                data[key] = record
+                created = True
+        if created:
             self._save(data)
         return Curator(**data[key])
 
@@ -139,17 +177,58 @@ class CuratorService:
         partners = await self.list_partners(curator_id)
         return any(p.get("user_id") == partner_user_id for p in partners)
 
-    async def request_join(self, curator_id: int, partner_id: int) -> None:
-        pend = self._load_pending()
-        pend[str(partner_id)] = curator_id
-        self._save_pending(pend)
+    async def request_join(
+        self,
+        curator_id: int,
+        partner_id: int,
+        *,
+        full_name: str | None = None,
+        username: str | None = None,
+        source_link: str | None = None,
+        payload: str | None = None,
+    ) -> None:
+        pend_raw = self._load_pending()
+        info: dict[str, Any] = {"curator_id": curator_id}
+        if full_name:
+            info["full_name"] = full_name
+        if username:
+            info["username"] = username
+        source_data = self._load_sources().get(str(partner_id)) or {}
+        if source_link or source_data.get("source_link"):
+            info["source_link"] = source_link or source_data.get("source_link")
+        if payload or source_data.get("payload"):
+            info["payload"] = payload or source_data.get("payload")
+        recorded_at = source_data.get("recorded_at")
+        if recorded_at:
+            info["recorded_at"] = recorded_at
+        elif info.get("source_link"):
+            info["recorded_at"] = datetime.now(timezone.utc).isoformat()
+        pend_raw[str(partner_id)] = info
+        self._save_pending(pend_raw)
 
-    async def resolve_request(self, partner_id: int) -> int | None:
-        pend = self._load_pending()
+    async def resolve_request(self, partner_id: int) -> dict | None:
+        pend_raw = self._load_pending()
         k = str(partner_id)
-        curator_id = pend.pop(k, None)
-        self._save_pending(pend)
-        return curator_id
+        entry = pend_raw.pop(k, None)
+        self._save_pending(pend_raw)
+        if entry is None:
+            return None
+        result: dict[str, Any]
+        if isinstance(entry, int):
+            result = {"curator_id": int(entry)}
+        elif isinstance(entry, dict):
+            result = dict(entry)
+            if "curator_id" in result:
+                result["curator_id"] = int(result["curator_id"])
+        else:
+            return None
+        source_data = self._load_sources().get(k)
+        if source_data:
+            for key in ("source_link", "payload", "recorded_at"):
+                if source_data.get(key) and not result.get(key):
+                    result[key] = source_data[key]
+            self._clear_invite_source(partner_id)
+        return result
 
     async def register_partner(self, curator_id: int, partner_user_id: int) -> None:
         data = self._load()
@@ -162,6 +241,8 @@ class CuratorService:
                 "ref_code": None,
                 "invite_link": None,
                 "partners": [],
+                "source_link": None,
+                "promoted_at": None,
             }
         v = data[k]
         partners = self._normalize_partners(v.get('partners') or [])
@@ -181,8 +262,35 @@ class CuratorService:
         data[k] = v
         self._save(data)
 
-    async def promote_to_curator(self, user_id: int, username: Optional[str], full_name: str) -> str:
+    async def promote_to_curator(
+        self,
+        user_id: int,
+        username: Optional[str],
+        full_name: str,
+        *,
+        source_link: Optional[str] = None,
+    ) -> str:
         link = await self.get_or_create_personal_link(user_id, username, full_name)
+        data = self._load()
+        key = str(user_id)
+        record = data.get(key) or {}
+        record.setdefault("user_id", user_id)
+        if username is not None:
+            record["username"] = username
+        if full_name:
+            record["full_name"] = full_name
+        record["invite_link"] = link
+        if "ref_code" not in record or not record.get("ref_code"):
+            # get_or_create_personal_link should have set these, but ensure defaults
+            cur = await self.ensure_curator_record(user_id, username, full_name)
+            record["ref_code"] = cur.ref_code
+        if source_link:
+            record["source_link"] = source_link
+        if not record.get("promoted_at"):
+            record["promoted_at"] = datetime.now(timezone.utc).isoformat()
+        data[key] = record
+        self._save(data)
+        self._clear_invite_source(user_id)
         return link
 
     async def find_curator_by_code(self, code: str) -> int | None:
@@ -191,6 +299,62 @@ class CuratorService:
             if v.get('ref_code') == code:
                 return int(uid)
         return None
+
+    async def record_invite_source(
+        self,
+        partner_id: int,
+        curator_id: int,
+        payload: str,
+        source_link: str,
+    ) -> None:
+        sources = self._load_sources()
+        sources[str(partner_id)] = {
+            "curator_id": curator_id,
+            "payload": payload,
+            "source_link": source_link,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._save_sources(sources)
+
+    async def get_invite_source(self, partner_id: int) -> Optional[dict]:
+        sources = self._load_sources()
+        data = sources.get(str(partner_id))
+        return dict(data) if isinstance(data, dict) else None
+
+    def _clear_invite_source(self, partner_id: int) -> None:
+        sources = self._load_sources()
+        if str(partner_id) in sources:
+            sources.pop(str(partner_id), None)
+            self._save_sources(sources)
+
+    async def get_curator_record(self, user_id: int) -> Optional[dict]:
+        data = self._load()
+        record = data.get(str(user_id))
+        if not record:
+            return None
+        return dict(record)
+
+    async def get_partner_statistics(self, curator_id: int, partner_user_id: int) -> Optional[dict]:
+        partners = await self.list_partners(curator_id)
+        info = next((p for p in partners if p.get("user_id") == partner_user_id), None)
+        if not info:
+            return None
+        record = await self.get_curator_record(partner_user_id)
+        stats = {
+            "user_id": partner_user_id,
+            "full_name": (info.get("full_name") or (record or {}).get("full_name") or "").strip(),
+            "username": info.get("username") or (record or {}).get("username"),
+        }
+        if record:
+            stats.update(
+                {
+                    "source_link": record.get("source_link"),
+                    "invite_link": record.get("invite_link"),
+                    "promoted_at": record.get("promoted_at"),
+                    "ref_code": record.get("ref_code"),
+                }
+            )
+        return stats
 
     async def store_captcha_challenge(self, partner_id: int, curator_id: int, answer: int) -> None:
         pend = self._load_captcha_pending()
