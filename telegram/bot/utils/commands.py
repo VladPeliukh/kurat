@@ -11,7 +11,8 @@ base_commands = [
         ]
 
 regular_admin_commands = [
-	BotCommand(command='/admin', description="Админ панель")
+	BotCommand(command='/admin', description="Админ панель"),
+	BotCommand(command='/invite', description="Моя пригласительная ссылка")
 ]
 
 super_admin_commands = [

@@ -30,8 +30,8 @@ async def start_bot(bot: Bot, dp: Dispatcher):
 		# # Настройка middleware
 		setup_middlewares(dp)
 
-                # Регистрация обработчиков
-                register_handlers(dp)
+		# Регистрация обработчиков
+		register_handlers(dp)
 
 		_, super_admins = await services.admin.list_admins()
 
@@ -54,12 +54,6 @@ async def shutdown_bot(bot: Bot, dp: Dispatcher):
 	for admin in super_admins:
 		try:
 			await bot.send_message(admin, text="🛑 Бот Остановлен 🛑")
-		except TelegramNotFound:
-			pass
-
-	for developer_id in Config.DEVELOPERS_IDS:
-		try:
-			await bot.send_message(developer_id, text="🛑 Бот Остановлен 🛑")
 		except TelegramNotFound:
 			pass
 
