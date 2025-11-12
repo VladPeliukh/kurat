@@ -19,7 +19,7 @@ class Curator:
     full_name: str
     ref_code: Optional[str] = None
     invite_link: Optional[str] = None
-    partners: List[int] = None
+    partners: List[dict] | None = None
 
     def to_dict(self): return asdict(self)
 
@@ -76,8 +76,12 @@ class CuratorService:
         key = str(user_id)
         if key not in data:
             data[key] = {
-                "user_id": user_id, "username": username, "full_name": full_name,
-                "ref_code": None, "invite_link": None, "partners": []
+                "user_id": user_id,
+                "username": username,
+                "full_name": full_name,
+                "ref_code": None,
+                "invite_link": None,
+                "partners": [],
             }
             self._save(data)
         return Curator(**data[key])
@@ -93,7 +97,47 @@ class CuratorService:
 
     async def partners_count(self, user_id: int) -> int:
         v = self._load().get(str(user_id)) or {}
-        return len(v.get('partners') or [])
+        partners = self._normalize_partners(v.get('partners') or [])
+        return len(partners)
+
+    def _normalize_partners(self, partners: list) -> list[dict]:
+        normalized: list[dict] = []
+        for item in partners or []:
+            if isinstance(item, int):
+                normalized.append({"user_id": int(item), "full_name": "", "username": None})
+            elif isinstance(item, dict):
+                normalized.append(
+                    {
+                        "user_id": int(item.get("user_id", 0)),
+                        "full_name": item.get("full_name") or "",
+                        "username": item.get("username"),
+                    }
+                )
+        seen: set[int] = set()
+        unique: list[dict] = []
+        for partner in normalized:
+            uid = partner.get("user_id")
+            if not uid or uid in seen:
+                continue
+            seen.add(uid)
+            unique.append(partner)
+        return unique
+
+    async def list_partners(self, curator_id: int) -> list[dict]:
+        data = self._load()
+        record = data.get(str(curator_id))
+        if not record:
+            return []
+        partners = self._normalize_partners(record.get("partners") or [])
+        if record.get("partners") != partners:
+            record["partners"] = partners
+            data[str(curator_id)] = record
+            self._save(data)
+        return partners
+
+    async def is_partner(self, curator_id: int, partner_user_id: int) -> bool:
+        partners = await self.list_partners(curator_id)
+        return any(p.get("user_id") == partner_user_id for p in partners)
 
     async def request_join(self, curator_id: int, partner_id: int) -> None:
         pend = self._load_pending()
@@ -111,14 +155,31 @@ class CuratorService:
         data = self._load()
         k = str(curator_id)
         if k not in data:
-            data[k] = {"user_id": curator_id, "username": None, "full_name": "", "ref_code": None, "invite_link": None, "partners": []}
+            data[k] = {
+                "user_id": curator_id,
+                "username": None,
+                "full_name": "",
+                "ref_code": None,
+                "invite_link": None,
+                "partners": [],
+            }
         v = data[k]
-        partners = v.get('partners') or []
-        if partner_user_id not in partners:
-            partners.append(partner_user_id)
-            v['partners'] = partners
-            data[k] = v
-            self._save(data)
+        partners = self._normalize_partners(v.get('partners') or [])
+        if any(p.get("user_id") == partner_user_id for p in partners):
+            return
+        full_name = ""
+        username = None
+        try:
+            chat = await self.bot.get_chat(partner_user_id)
+            parts = [chat.first_name or "", chat.last_name or ""]
+            full_name = " ".join(part for part in parts if part).strip()
+            username = chat.username
+        except Exception:
+            pass
+        partners.append({"user_id": partner_user_id, "full_name": full_name, "username": username})
+        v['partners'] = partners
+        data[k] = v
+        self._save(data)
 
     async def promote_to_curator(self, user_id: int, username: Optional[str], full_name: str) -> str:
         link = await self.get_or_create_personal_link(user_id, username, full_name)
