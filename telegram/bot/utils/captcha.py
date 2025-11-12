@@ -1,4 +1,6 @@
+import os
 import sys
+from io import BytesIO
 from random import choice
 from string import ascii_letters, digits
 from typing import List, Tuple
@@ -58,12 +60,21 @@ class NumberCaptcha:
         """Поиск доступного шрифта"""
         if sys.platform.startswith('win'):
             return "arial.ttf"
-        elif sys.platform == 'darwin':
-            return "/System/Library/Fonts/NewYork.ttf"
-        else:
-            return "DejaVuSans.ttf"
+        if sys.platform == 'darwin':
+            mac_fonts = [
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/System/Library/Fonts/Supplemental/Helvetica.ttf",
+                "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+                "/Library/Fonts/Arial.ttf",
+                "/System/Library/Fonts/NewYork.ttf",
+            ]
+            for font_path in mac_fonts:
+                if os.path.exists(font_path):
+                    return font_path
+            return "Arial.ttf"
+        return "DejaVuSans.ttf"
 
-    async def random_captcha(self) -> int:
+    async def random_captcha(self) -> Tuple[int, bytes]:
         first = int(choice(self._chars))
         second = int(choice(self._chars))
         captcha_font = self._get_font_path()
@@ -75,7 +86,10 @@ class NumberCaptcha:
         draw = ImageDraw.Draw(image)
 
         # Выберите шрифт и размер (можно использовать системный шрифт)
-        font = ImageFont.truetype(captcha_font, 50)  # или можно указать свой шрифт
+        try:
+            font = ImageFont.truetype(captcha_font, 50)
+        except OSError:
+            font = ImageFont.load_default()
 
         # Рассчитываем размеры текста и позицию
         text_bbox = draw.textbbox((0, 0), text, font=font)
@@ -88,6 +102,7 @@ class NumberCaptcha:
         # Рисуем текст на изображении
         draw.text((text_x, text_y), text, fill=(0, 0, 0), font=font)
 
-        # Сохраняем изображение
-        image.save(f'src/static/captcha/{result}.png')
-        return result
+        buffer = BytesIO()
+        image.save(buffer, format='PNG')
+        buffer.seek(0)
+        return result, buffer.read()
