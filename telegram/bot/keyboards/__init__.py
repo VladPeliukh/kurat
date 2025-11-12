@@ -1,5 +1,5 @@
-from .captcha import captcha_options_keyboard
-from .curator import (
+from .captcha_keyboards import captcha_options_keyboard
+from .curator_keyboards import (
     curator_main_menu_keyboard,
     curator_partners_keyboard,
     curator_request_keyboard,
