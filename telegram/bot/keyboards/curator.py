@@ -1,0 +1,39 @@
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+
+def curator_request_keyboard(partner_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура для одобрения или отклонения заявки нового куратора."""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Принять", callback_data=f"cur_acc:{partner_id}"),
+                InlineKeyboardButton(text="Отклонить", callback_data=f"cur_dec:{partner_id}"),
+            ]
+        ]
+    )
+
+
+def curator_main_menu_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Приглашенные пользователи", callback_data="cur_menu:partners")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def curator_partners_keyboard(partners: list[dict]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for partner in partners:
+        user_id = partner.get("user_id")
+        if not user_id:
+            continue
+        title = partner.get("full_name") or partner.get("username") or str(user_id)
+        if partner.get("username") and partner.get("full_name"):
+            title = f"{partner['full_name']} (@{partner['username']})"
+        if len(title) > 64:
+            title = title[:61] + "..."
+        builder.button(text=title, callback_data=f"cur_partner:{user_id}")
+    builder.button(text="↩️ Назад", callback_data="cur_menu:back")
+    builder.adjust(1)
+    return builder.as_markup()
