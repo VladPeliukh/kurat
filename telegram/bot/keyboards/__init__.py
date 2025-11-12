@@ -3,6 +3,7 @@ from .curator_keyboards import (
     curator_main_menu_keyboard,
     curator_partners_keyboard,
     curator_request_keyboard,
+    format_partner_title,
 )
 
 __all__ = [
@@ -10,4 +11,5 @@ __all__ = [
     "curator_main_menu_keyboard",
     "curator_partners_keyboard",
     "curator_request_keyboard",
+    "format_partner_title",
 ]

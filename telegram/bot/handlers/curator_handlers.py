@@ -9,6 +9,7 @@ from ..keyboards import (
     curator_main_menu_keyboard,
     curator_partners_keyboard,
     curator_request_keyboard,
+    format_partner_title,
 )
 from ..services.curator_service import CuratorService
 from ..utils.captcha import NumberCaptcha
@@ -137,14 +138,7 @@ async def curator_message_prompt(call: CallbackQuery) -> None:
         return
     partners = await svc.list_partners(call.from_user.id)
     info = next((p for p in partners if p.get("user_id") == partner_id), None)
-    display_name = info.get("full_name") if info else None
-    if info and info.get("username"):
-        if display_name:
-            display_name = f"{display_name} (@{info['username']})"
-        else:
-            display_name = f"@{info['username']}"
-    if not display_name:
-        display_name = f"ID {partner_id}"
+    display_name = format_partner_title(info) if info else f"ID {partner_id}"
     _pending_curator_messages[call.from_user.id] = partner_id
     prompt = (
         f"Напишите сообщение для {html.escape(display_name)}.\n"
