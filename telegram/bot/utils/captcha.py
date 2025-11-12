@@ -1,4 +1,5 @@
 import sys
+from io import BytesIO
 from random import choice
 from string import ascii_letters, digits
 from typing import List, Tuple
@@ -63,7 +64,7 @@ class NumberCaptcha:
         else:
             return "DejaVuSans.ttf"
 
-    async def random_captcha(self) -> int:
+    async def random_captcha(self) -> Tuple[int, bytes]:
         first = int(choice(self._chars))
         second = int(choice(self._chars))
         captcha_font = self._get_font_path()
@@ -88,6 +89,7 @@ class NumberCaptcha:
         # Рисуем текст на изображении
         draw.text((text_x, text_y), text, fill=(0, 0, 0), font=font)
 
-        # Сохраняем изображение
-        image.save(f'src/static/captcha/{result}.png')
-        return result
+        buffer = BytesIO()
+        image.save(buffer, format='PNG')
+        buffer.seek(0)
+        return result, buffer.read()

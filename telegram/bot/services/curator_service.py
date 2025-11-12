@@ -9,6 +9,8 @@ from ..utils.helpers import make_ref_code, build_deeplink
 DATA_DIR = Path(__file__).resolve().parent.parent / 'data'
 DATA_FILE = DATA_DIR / 'curators.json'
 PENDING_FILE = DATA_DIR / 'pending.json'
+CAPTCHA_PENDING_FILE = DATA_DIR / 'captcha_pending.json'
+CAPTCHA_PASSED_FILE = DATA_DIR / 'captcha_passed.json'
 
 @dataclass
 class Curator:
@@ -26,9 +28,15 @@ class CuratorService:
     def __init__(self, bot: Bot):
         self.bot = bot
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        for f in (DATA_FILE, PENDING_FILE):
-            if not f.exists():
-                f.write_text("{}", encoding="utf-8")
+        defaults = (
+            (DATA_FILE, "{}"),
+            (PENDING_FILE, "{}"),
+            (CAPTCHA_PENDING_FILE, "{}"),
+            (CAPTCHA_PASSED_FILE, "[]"),
+        )
+        for file, default in defaults:
+            if not file.exists():
+                file.write_text(default, encoding="utf-8")
 
     def _load(self) -> Dict[str, dict]:
         try: return json.loads(DATA_FILE.read_text(encoding='utf-8') or '{}')
@@ -43,6 +51,20 @@ class CuratorService:
 
     def _save_pending(self, data: Dict[str, int]) -> None:
         PENDING_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+    def _load_captcha_pending(self) -> Dict[str, dict]:
+        try: return json.loads(CAPTCHA_PENDING_FILE.read_text(encoding='utf-8') or '{}')
+        except Exception: return {}
+
+    def _save_captcha_pending(self, data: Dict[str, dict]) -> None:
+        CAPTCHA_PENDING_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+    def _load_captcha_passed(self) -> list[int]:
+        try: return json.loads(CAPTCHA_PASSED_FILE.read_text(encoding='utf-8') or '[]')
+        except Exception: return []
+
+    def _save_captcha_passed(self, data: list[int]) -> None:
+        CAPTCHA_PASSED_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
 
     async def is_curator(self, user_id: int) -> bool:
         data = self._load()
@@ -108,3 +130,34 @@ class CuratorService:
             if v.get('ref_code') == code:
                 return int(uid)
         return None
+
+    async def store_captcha_challenge(self, partner_id: int, curator_id: int, answer: int) -> None:
+        pend = self._load_captcha_pending()
+        pend[str(partner_id)] = {"curator_id": curator_id, "answer": answer}
+        self._save_captcha_pending(pend)
+
+    async def get_captcha_challenge(self, partner_id: int) -> tuple[int, int] | None:
+        pend = self._load_captcha_pending()
+        data = pend.get(str(partner_id))
+        if not data:
+            return None
+        curator_id = int(data.get("curator_id"))
+        answer = int(data.get("answer"))
+        return curator_id, answer
+
+    async def clear_captcha_challenge(self, partner_id: int) -> None:
+        pend = self._load_captcha_pending()
+        if str(partner_id) in pend:
+            pend.pop(str(partner_id), None)
+            self._save_captcha_pending(pend)
+
+    async def has_passed_captcha(self, partner_id: int) -> bool:
+        passed = self._load_captcha_passed()
+        return partner_id in passed
+
+    async def mark_captcha_passed(self, partner_id: int) -> None:
+        passed = self._load_captcha_passed()
+        if partner_id not in passed:
+            passed.append(partner_id)
+            self._save_captcha_passed(passed)
+        await self.clear_captcha_challenge(partner_id)

@@ -1,10 +1,68 @@
-from aiogram import Router, F
+import html
+import random
+from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
+from ..keyboards import captcha_options_keyboard, curator_request_keyboard
 from ..services.curator_service import CuratorService
+from ..utils.captcha import NumberCaptcha
 
 router = Router()
+_captcha_generator = NumberCaptcha()
+
+
+def _build_captcha_options(correct_answer: int, total: int = 4) -> list[int]:
+    options = {correct_answer}
+    spread = max(3, abs(correct_answer) + 5)
+    while len(options) < total:
+        candidate = correct_answer + random.randint(-spread, spread)
+        if candidate < 0:
+            continue
+        options.add(candidate)
+    result = list(options)
+    random.shuffle(result)
+    return result
+
+
+async def _send_captcha_challenge(message: Message, user_id: int, svc: CuratorService, curator_id: int) -> None:
+    answer, image_bytes = await _captcha_generator.random_captcha()
+    options = _build_captcha_options(answer)
+    await svc.store_captcha_challenge(user_id, curator_id, answer)
+    keyboard = captcha_options_keyboard(options)
+    captcha_image = BufferedInputFile(image_bytes, filename="captcha.png")
+    await message.answer_photo(
+        captcha_image,
+        caption=(
+            "Подтвердите, что вы человек. Решите пример на изображении и выберите верный ответ."
+        ),
+        reply_markup=keyboard,
+    )
+
+
+async def _notify_curator(
+    svc: CuratorService,
+    curator_id: int,
+    partner_id: int,
+    full_name: str,
+    bot: Bot,
+) -> None:
+    await svc.request_join(curator_id, partner_id)
+    keyboard = curator_request_keyboard(partner_id)
+    safe_name = html.escape(full_name or "")
+    try:
+        await bot.send_message(
+            curator_id,
+            f"Заявка от <a href='tg://user?id={partner_id}'>{safe_name}</a> стать куратором.",
+            reply_markup=keyboard,
+        )
+    except Exception:
+        pass
+
+
+async def _finalize_request(message: Message, svc: CuratorService, curator_id: int) -> None:
+    await _notify_curator(svc, curator_id, message.from_user.id, message.from_user.full_name, message.bot)
+    await message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
 
 @router.message(Command('invite'))
 async def handle_invite(message: Message) -> None:
@@ -28,20 +86,11 @@ async def start_with_payload(message: Message) -> None:
     if not curator_id:
         await message.answer("Ссылка недействительна или устарела.")
         return
-    await svc.request_join(curator_id, message.from_user.id)
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Принять", callback_data=f"cur_acc:{message.from_user.id}"),
-        InlineKeyboardButton(text="Отклонить", callback_data=f"cur_dec:{message.from_user.id}")
-    ]])
-    try:
-        await message.bot.send_message(
-            curator_id,
-            f"Заявка от <a href='tg://user?id={message.from_user.id}'>{message.from_user.full_name}</a> стать куратором.",
-            reply_markup=kb
-        )
-    except Exception:
-        pass
-    await message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
+    if not await svc.has_passed_captcha(message.from_user.id):
+        await _send_captcha_challenge(message, message.from_user.id, svc, curator_id)
+        return
+
+    await _finalize_request(message, svc, curator_id)
     return
 
 
@@ -54,19 +103,12 @@ async def request_curation(call: CallbackQuery):
         await call.answer("Ссылка устарела.", show_alert=True)
         return
     # Создаём заявку и уведомляем куратора
-    await svc.request_join(curator_id, call.from_user.id)
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Принять", callback_data=f"cur_acc:{call.from_user.id}"),
-        InlineKeyboardButton(text="Отклонить", callback_data=f"cur_dec:{call.from_user.id}")
-    ]])
-    try:
-        await call.bot.send_message(
-            curator_id,
-            f"Заявка от <a href='tg://user?id={call.from_user.id}'>{call.from_user.full_name}</a> стать куратором.",
-            reply_markup=kb
-        )
-    except Exception:
-        pass
+    if not await svc.has_passed_captcha(call.from_user.id):
+        await call.answer()
+        await _send_captcha_challenge(call.message, call.from_user.id, svc, curator_id)
+        return
+
+    await _notify_curator(svc, curator_id, call.from_user.id, call.from_user.full_name, call.bot)
     await call.answer()  # закрыть "часики"
     try:
         await call.message.edit_text("Заявка отправлена вашему куратору. Ожидайте решения.")
@@ -75,6 +117,49 @@ async def request_curation(call: CallbackQuery):
             await call.message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
         except Exception:
             pass
+
+
+@router.callback_query(F.data.startswith("cur_cap:"))
+async def verify_captcha(call: CallbackQuery) -> None:
+    svc = CuratorService(call.bot)
+    selected = int(call.data.split(":", 1)[1])
+    challenge = await svc.get_captcha_challenge(call.from_user.id)
+    if not challenge:
+        if await svc.has_passed_captcha(call.from_user.id):
+            await call.answer("Капча уже пройдена.")
+        else:
+            await call.answer("Капча устарела. Пожалуйста, запросите новую ссылку.", show_alert=True)
+        return
+
+    curator_id, correct = challenge
+    if selected != correct:
+        await call.answer("Неверный ответ. Попробуйте ещё раз.", show_alert=True)
+        try:
+            await call.message.edit_caption(
+                "Ответ неверный. Мы отправили новую капчу.", reply_markup=None
+            )
+        except Exception:
+            try:
+                await call.message.edit_text(
+                    "Ответ неверный. Мы отправили новую капчу.", reply_markup=None
+                )
+            except Exception:
+                pass
+        await _send_captcha_challenge(call.message, call.from_user.id, svc, curator_id)
+        return
+
+    await svc.mark_captcha_passed(call.from_user.id)
+    await call.answer("Верно!", show_alert=False)
+    try:
+        await call.message.edit_caption("✅ Капча успешно пройдена", reply_markup=None)
+    except Exception:
+        try:
+            await call.message.edit_text("✅ Капча успешно пройдена", reply_markup=None)
+        except Exception:
+            pass
+
+    await _notify_curator(svc, curator_id, call.from_user.id, call.from_user.full_name, call.bot)
+    await call.message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
 
 @router.callback_query(F.data.startswith("cur_acc:"))
 async def approve_curator(call: CallbackQuery):
