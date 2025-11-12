@@ -42,21 +42,7 @@ async def start_with_payload(message: Message) -> None:
     except Exception:
         pass
     await message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
-    if not payload:
-        return
-    svc = CuratorService(message.bot)
-    curator_id = await svc.find_curator_by_code(payload.strip())
-    if not curator_id:
-        await message.answer("Ссылка недействительна или устарела.")
-        return
-    # Показываем пользователю кнопку "Подать заявку"
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Подать заявку", callback_data=f"cur_req:{payload.strip()}")
-    ]])
-    await message.answer(
-        "Вы пришли по пригласительной ссылке куратора.\nНажмите «Подать заявку», чтобы отправить запрос стать куратором.",
-        reply_markup=kb
-    )
+    return
 
 
 @router.callback_query(F.data.startswith("cur_req:"))
