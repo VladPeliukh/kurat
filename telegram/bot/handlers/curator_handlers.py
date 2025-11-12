@@ -86,6 +86,9 @@ async def start_with_payload(message: Message) -> None:
     if not curator_id:
         await message.answer("Ссылка недействительна или устарела.")
         return
+    if await svc.is_curator(message.from_user.id):
+        await message.answer("Вы уже являетесь куратором.")
+        return
     if not await svc.has_passed_captcha(message.from_user.id):
         await _send_captcha_challenge(message, message.from_user.id, svc, curator_id)
         return
@@ -103,6 +106,9 @@ async def request_curation(call: CallbackQuery):
         await call.answer("Ссылка устарела.", show_alert=True)
         return
     # Создаём заявку и уведомляем куратора
+    if await svc.is_curator(call.from_user.id):
+        await call.answer("Вы уже являетесь куратором.", show_alert=True)
+        return
     if not await svc.has_passed_captcha(call.from_user.id):
         await call.answer()
         await _send_captcha_challenge(call.message, call.from_user.id, svc, curator_id)
