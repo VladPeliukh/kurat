@@ -18,6 +18,7 @@ def curator_request_keyboard(partner_id: int) -> InlineKeyboardMarkup:
 def curator_main_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Приглашенные пользователи", callback_data="cur_menu:partners")
+    builder.button(text="Посмотреть статистику приглашенных пользователей", callback_data="cur_menu:stats")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -52,6 +53,21 @@ def curator_partners_keyboard(partners: list[dict]) -> InlineKeyboardMarkup:
         if len(title) > 64:
             title = title[:61] + "..."
         builder.button(text=title, callback_data=f"cur_partner:{user_id}")
+    builder.button(text="↩️ Назад", callback_data="cur_menu:back")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def curator_partners_stats_keyboard(partners: list[dict]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for partner in partners:
+        user_id = partner.get("user_id")
+        if not user_id:
+            continue
+        title = format_partner_title(partner)
+        if len(title) > 64:
+            title = title[:61] + "..."
+        builder.button(text=title, callback_data=f"cur_stat:{user_id}")
     builder.button(text="↩️ Назад", callback_data="cur_menu:back")
     builder.adjust(1)
     return builder.as_markup()

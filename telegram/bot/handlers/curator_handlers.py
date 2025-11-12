@@ -8,11 +8,15 @@ from ..keyboards import (
     captcha_options_keyboard,
     curator_main_menu_keyboard,
     curator_partners_keyboard,
+    curator_partners_stats_keyboard,
     curator_request_keyboard,
     format_partner_title,
 )
 from ..services.curator_service import CuratorService
 from ..utils.captcha import NumberCaptcha
+from ..utils.helpers import build_deeplink
+
+from datetime import datetime
 
 router = Router()
 _captcha_generator = NumberCaptcha()
@@ -53,8 +57,19 @@ async def _notify_curator(
     partner_id: int,
     full_name: str,
     bot: Bot,
+    *,
+    username: str | None = None,
+    source_link: str | None = None,
+    payload: str | None = None,
 ) -> None:
-    await svc.request_join(curator_id, partner_id)
+    await svc.request_join(
+        curator_id,
+        partner_id,
+        full_name=full_name,
+        username=username,
+        source_link=source_link,
+        payload=payload,
+    )
     keyboard = curator_request_keyboard(partner_id)
     safe_name = html.escape(full_name or "")
     try:
@@ -67,8 +82,24 @@ async def _notify_curator(
         pass
 
 
-async def _finalize_request(message: Message, svc: CuratorService, curator_id: int) -> None:
-    await _notify_curator(svc, curator_id, message.from_user.id, message.from_user.full_name, message.bot)
+async def _finalize_request(
+    message: Message,
+    svc: CuratorService,
+    curator_id: int,
+    *,
+    source_link: str | None = None,
+    payload: str | None = None,
+) -> None:
+    await _notify_curator(
+        svc,
+        curator_id,
+        message.from_user.id,
+        message.from_user.full_name,
+        message.bot,
+        username=message.from_user.username,
+        source_link=source_link,
+        payload=payload,
+    )
     await message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
 
 
@@ -122,6 +153,80 @@ async def curator_show_partners(call: CallbackQuery) -> None:
     await call.answer()
 
 
+@router.callback_query(F.data == "cur_menu:stats")
+async def curator_show_stats(call: CallbackQuery) -> None:
+    svc = CuratorService(call.message.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
+    partners = await svc.list_partners(call.from_user.id)
+    if not partners:
+        await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
+        return
+    keyboard = curator_partners_stats_keyboard(partners)
+    text = (
+        "Статистика приглашенных пользователей.\n"
+        "Выберите пользователя, чтобы посмотреть сохранённые данные."
+    )
+    try:
+        await call.message.edit_text(text, reply_markup=keyboard)
+    except Exception:
+        await call.message.answer(text, reply_markup=keyboard)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("cur_stat:"))
+async def curator_partner_stats(call: CallbackQuery) -> None:
+    svc = CuratorService(call.message.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
+    try:
+        partner_id = int(call.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await call.answer("Не удалось определить пользователя.", show_alert=True)
+        return
+    stats = await svc.get_partner_statistics(call.from_user.id, partner_id)
+    if not stats:
+        await call.answer("Данные по этому пользователю недоступны.", show_alert=True)
+        return
+    username = stats.get("username") or ""
+    if username and not username.startswith("@"):
+        username = f"@{username}"
+    promoted_at = stats.get("promoted_at")
+    promoted_text = None
+    if promoted_at:
+        try:
+            dt = datetime.fromisoformat(promoted_at)
+            promoted_text = dt.strftime("%d.%m.%Y %H:%M:%S")
+        except Exception:
+            promoted_text = promoted_at
+    lines = [
+        "<b>Данные пользователя</b>",
+        f"ID: <code>{stats['user_id']}</code>",
+    ]
+    full_name = stats.get("full_name")
+    if full_name:
+        lines.append(f"Имя: {html.escape(full_name)}")
+    if username:
+        lines.append(f"Username: {html.escape(username)}")
+    source_link = stats.get("source_link")
+    if source_link:
+        lines.append(f"Источник: {html.escape(source_link)}")
+    invite_link = stats.get("invite_link")
+    if invite_link:
+        lines.append(f"Персональная ссылка: {html.escape(invite_link)}")
+    if promoted_text:
+        lines.append(f"Дата назначения куратором: {html.escape(promoted_text)}")
+    if not source_link and not invite_link and not promoted_text:
+        lines.append("Пользователь ещё не стал куратором или данные недоступны.")
+    text = "\n".join(lines)
+    await call.answer()
+    try:
+        await call.message.answer(text, parse_mode="HTML")
+    except Exception:
+        pass
+
 @router.callback_query(F.data.startswith("cur_partner:"))
 async def curator_message_prompt(call: CallbackQuery) -> None:
     svc = CuratorService(call.message.bot)
@@ -167,10 +272,21 @@ async def start_with_payload(message: Message) -> None:
     if not payload:
         return
     svc = CuratorService(message.bot)
-    curator_id = await svc.find_curator_by_code(payload.strip())
+    clean_payload = payload.strip()
+    curator_id = await svc.find_curator_by_code(clean_payload)
     if not curator_id:
         await message.answer("Ссылка недействительна или устарела.")
         return
+    me = await message.bot.get_me()
+    source_link = None
+    if me.username:
+        source_link = build_deeplink(me.username, clean_payload)
+    await svc.record_invite_source(
+        message.from_user.id,
+        curator_id,
+        clean_payload,
+        source_link or clean_payload,
+    )
     if await svc.is_curator(message.from_user.id):
         await message.answer("Вы уже являетесь куратором.")
         return
@@ -178,7 +294,13 @@ async def start_with_payload(message: Message) -> None:
         await _send_captcha_challenge(message, message.from_user.id, svc, curator_id)
         return
 
-    await _finalize_request(message, svc, curator_id)
+    await _finalize_request(
+        message,
+        svc,
+        curator_id,
+        source_link=source_link,
+        payload=clean_payload,
+    )
     return
 
 
@@ -190,6 +312,16 @@ async def request_curation(call: CallbackQuery):
     if not curator_id:
         await call.answer("Ссылка устарела.", show_alert=True)
         return
+    me = await call.bot.get_me()
+    source_link = None
+    if me.username:
+        source_link = build_deeplink(me.username, code)
+    await svc.record_invite_source(
+        call.from_user.id,
+        curator_id,
+        code,
+        source_link or code,
+    )
     # Создаём заявку и уведомляем куратора
     if await svc.is_curator(call.from_user.id):
         await call.answer("Вы уже являетесь куратором.", show_alert=True)
@@ -199,7 +331,16 @@ async def request_curation(call: CallbackQuery):
         await _send_captcha_challenge(call.message, call.from_user.id, svc, curator_id)
         return
 
-    await _notify_curator(svc, curator_id, call.from_user.id, call.from_user.full_name, call.bot)
+    await _notify_curator(
+        svc,
+        curator_id,
+        call.from_user.id,
+        call.from_user.full_name,
+        call.bot,
+        username=call.from_user.username,
+        source_link=source_link,
+        payload=code,
+    )
     await call.answer()  # закрыть "часики"
     try:
         await call.message.edit_text("Заявка отправлена вашему куратору. Ожидайте решения.")
@@ -240,6 +381,7 @@ async def verify_captcha(call: CallbackQuery) -> None:
         return
 
     await svc.mark_captcha_passed(call.from_user.id)
+    source_info = await svc.get_invite_source(call.from_user.id)
     await call.answer("Верно!", show_alert=False)
     try:
         await call.message.edit_caption("✅ Капча успешно пройдена", reply_markup=None)
@@ -249,7 +391,16 @@ async def verify_captcha(call: CallbackQuery) -> None:
         except Exception:
             pass
 
-    await _notify_curator(svc, curator_id, call.from_user.id, call.from_user.full_name, call.bot)
+    await _notify_curator(
+        svc,
+        curator_id,
+        call.from_user.id,
+        call.from_user.full_name,
+        call.bot,
+        username=call.from_user.username,
+        source_link=(source_info or {}).get("source_link"),
+        payload=(source_info or {}).get("payload"),
+    )
     await call.message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
 
 
@@ -295,12 +446,28 @@ async def handle_curator_outgoing_message(message: Message) -> None:
 async def approve_curator(call: CallbackQuery):
     svc = CuratorService(call.message.bot)
     partner_id = int(call.data.split(':',1)[1])
-    curator_id = await svc.resolve_request(partner_id)
+    request_info = await svc.resolve_request(partner_id)
+    curator_id = request_info.get("curator_id") if request_info else None
     if curator_id != call.from_user.id:
         await call.answer("Эта заявка не для вас или уже обработана.", show_alert=True)
         return
     await svc.register_partner(curator_id, partner_id)
-    new_link = await svc.promote_to_curator(partner_id, None, "")
+    username = (request_info or {}).get("username")
+    full_name = (request_info or {}).get("full_name") or ""
+    if (not username) or (not full_name):
+        try:
+            chat = await call.bot.get_chat(partner_id)
+            username = username or chat.username
+            parts = [chat.first_name or "", chat.last_name or ""]
+            full_name = full_name or " ".join(part for part in parts if part).strip()
+        except Exception:
+            pass
+    new_link = await svc.promote_to_curator(
+        partner_id,
+        username,
+        full_name,
+        source_link=(request_info or {}).get("source_link"),
+    )
     await call.answer("Принято", show_alert=False)
     try:
         await call.message.edit_text(call.message.html_text + "\n\n✅ Принято")
