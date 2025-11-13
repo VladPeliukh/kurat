@@ -4,6 +4,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from aiogram import Bot
 from ..utils.helpers import make_ref_code, build_deeplink
 
@@ -13,6 +14,7 @@ PENDING_FILE = DATA_DIR / 'pending.json'
 CAPTCHA_PENDING_FILE = DATA_DIR / 'captcha_pending.json'
 CAPTCHA_PASSED_FILE = DATA_DIR / 'captcha_passed.json'
 SOURCES_FILE = DATA_DIR / 'sources.json'
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 @dataclass
 class Curator:
@@ -287,7 +289,7 @@ class CuratorService:
         if source_link:
             record["source_link"] = source_link
         if not record.get("promoted_at"):
-            record["promoted_at"] = datetime.now(timezone.utc).isoformat()
+            record["promoted_at"] = datetime.now(MOSCOW_TZ).isoformat()
         data[key] = record
         self._save(data)
         self._clear_invite_source(user_id)
@@ -386,3 +388,4 @@ class CuratorService:
             passed.append(partner_id)
             self._save_captcha_passed(passed)
         await self.clear_captcha_challenge(partner_id)
+
