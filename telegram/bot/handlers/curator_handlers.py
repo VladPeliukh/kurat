@@ -209,6 +209,8 @@ async def curator_partners_next_page(call: CallbackQuery) -> None:
         offset = int(call.data.split(":", 1)[1])
     except (ValueError, IndexError):
         offset = _CURATOR_PARTNERS_PAGE_SIZE
+    else:
+        offset = max(0, offset)
     partners = await svc.list_partners(call.from_user.id)
     if not partners:
         await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
@@ -236,6 +238,8 @@ async def curator_stats_next_page(call: CallbackQuery) -> None:
         offset = int(call.data.split(":", 1)[1])
     except (ValueError, IndexError):
         offset = _CURATOR_PARTNERS_PAGE_SIZE
+    else:
+        offset = max(0, offset)
     partners = await svc.list_partners(call.from_user.id)
     if not partners:
         await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
