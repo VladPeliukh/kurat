@@ -43,31 +43,99 @@ def format_partner_title(partner: dict) -> str:
     return "Неизвестный пользователь"
 
 
-def curator_partners_keyboard(partners: list[dict]) -> InlineKeyboardMarkup:
+def _sanitize_offset(offset: int, total: int, page_size: int) -> int:
+    if offset < 0:
+        return 0
+    if offset >= total:
+        if total == 0:
+            return 0
+        return max(0, total - page_size)
+    return offset
+
+
+def curator_partners_keyboard(
+    partners: list[dict], *, offset: int = 0, page_size: int = 10
+) -> InlineKeyboardMarkup:
+    total = len(partners)
+    offset = _sanitize_offset(offset, total, page_size)
+
     builder = InlineKeyboardBuilder()
-    for partner in partners:
+    for partner in partners[offset : offset + page_size]:
         user_id = partner.get("user_id")
         if not user_id:
             continue
         title = format_partner_title(partner)
         if len(title) > 64:
             title = title[:61] + "..."
-        builder.button(text=title, callback_data=f"cur_partner:{user_id}")
-    builder.button(text="↩️ Назад", callback_data="cur_menu:back")
-    builder.adjust(1)
+        builder.row(
+            InlineKeyboardButton(text=title, callback_data=f"cur_partner:{user_id}"),
+            width=1,
+        )
+
+    navigation_buttons: list[InlineKeyboardButton] = []
+    if offset > 0:
+        prev_offset = max(0, offset - page_size)
+        navigation_buttons.append(
+            InlineKeyboardButton(
+                text="⬅️ Обратно", callback_data=f"cur_partners_page:{prev_offset}"
+            )
+        )
+    if offset + page_size < total:
+        next_offset = offset + page_size
+        navigation_buttons.append(
+            InlineKeyboardButton(
+                text="➡️ Далее", callback_data=f"cur_partners_page:{next_offset}"
+            )
+        )
+    if navigation_buttons:
+        builder.row(*navigation_buttons, width=len(navigation_buttons))
+
+    builder.row(
+        InlineKeyboardButton(text="↩️ Назад", callback_data="cur_menu:back"),
+        width=1,
+    )
     return builder.as_markup()
 
 
-def curator_partners_stats_keyboard(partners: list[dict]) -> InlineKeyboardMarkup:
+def curator_partners_stats_keyboard(
+    partners: list[dict], *, offset: int = 0, page_size: int = 10
+) -> InlineKeyboardMarkup:
+    total = len(partners)
+    offset = _sanitize_offset(offset, total, page_size)
+
     builder = InlineKeyboardBuilder()
-    for partner in partners:
+    for partner in partners[offset : offset + page_size]:
         user_id = partner.get("user_id")
         if not user_id:
             continue
         title = format_partner_title(partner)
         if len(title) > 64:
             title = title[:61] + "..."
-        builder.button(text=title, callback_data=f"cur_stat:{user_id}")
-    builder.button(text="↩️ Назад", callback_data="cur_menu:back")
-    builder.adjust(1)
+        builder.row(
+            InlineKeyboardButton(text=title, callback_data=f"cur_stat:{user_id}"),
+            width=1,
+        )
+
+    navigation_buttons: list[InlineKeyboardButton] = []
+    if offset > 0:
+        prev_offset = max(0, offset - page_size)
+        navigation_buttons.append(
+            InlineKeyboardButton(
+                text="⬅️ Обратно", callback_data=f"cur_stats_page:{prev_offset}"
+            )
+        )
+    if offset + page_size < total:
+        next_offset = offset + page_size
+        navigation_buttons.append(
+            InlineKeyboardButton(
+                text="➡️ Далее", callback_data=f"cur_stats_page:{next_offset}"
+            )
+        )
+    if navigation_buttons:
+        builder.row(*navigation_buttons, width=len(navigation_buttons))
+
+    builder.row(
+        InlineKeyboardButton(text="↩️ Назад", callback_data="cur_menu:back"),
+        width=1,
+    )
     return builder.as_markup()
