@@ -16,6 +16,7 @@ class Services:
 
 async def setup_services(bot: Bot, pool: asyncpg.Pool) -> Services:
     """Инициализация всех сервисов"""
-    CuratorService.configure(pool)
-    await CuratorService.init_storage()
+    if getattr(CuratorService, "_pool", None) is None:
+        CuratorService.configure(pool)
+        await CuratorService.init_storage()
     return Services(bot, pool)
