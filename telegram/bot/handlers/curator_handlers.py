@@ -1,8 +1,10 @@
 import html
 import random
+from typing import Callable
+
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 
 from ..keyboards import (
     captcha_options_keyboard,
@@ -21,9 +23,10 @@ from datetime import datetime
 router = Router()
 _captcha_generator = NumberCaptcha()
 _pending_curator_messages: dict[int, int] = {}
+_CURATOR_PARTNERS_PAGE_SIZE = 10
 
 
-def _build_captcha_options(correct_answer: int, total: int = 4) -> list[int]:
+def _build_captcha_options(correct_answer: int, total: int = 9) -> list[int]:
     options = {correct_answer}
     spread = max(3, abs(correct_answer) + 5)
     while len(options) < total:
@@ -34,6 +37,25 @@ def _build_captcha_options(correct_answer: int, total: int = 4) -> list[int]:
     result = list(options)
     random.shuffle(result)
     return result
+
+async def _render_partners_list(
+    call: CallbackQuery,
+    partners: list[dict],
+    *,
+    offset: int,
+    text: str,
+    keyboard_builder: Callable[..., InlineKeyboardMarkup],
+) -> None:
+    keyboard = keyboard_builder(
+        partners,
+        offset=offset,
+        page_size=_CURATOR_PARTNERS_PAGE_SIZE,
+    )
+    try:
+        await call.message.edit_text(text, reply_markup=keyboard)
+    except Exception:
+        await call.message.answer(text, reply_markup=keyboard)
+    await call.answer()
 
 
 async def _send_captcha_challenge(message: Message, user_id: int, svc: CuratorService, curator_id: int) -> None:
@@ -141,16 +163,17 @@ async def curator_show_partners(call: CallbackQuery) -> None:
     if not partners:
         await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
         return
-    keyboard = curator_partners_keyboard(partners)
     text = (
         "Ваши приглашенные пользователи.\n"
         "Выберите пользователя, чтобы написать ему сообщение."
     )
-    try:
-        await call.message.edit_text(text, reply_markup=keyboard)
-    except Exception:
-        await call.message.answer(text, reply_markup=keyboard)
-    await call.answer()
+    await _render_partners_list(
+        call,
+        partners,
+        offset=0,
+        text=text,
+        keyboard_builder=curator_partners_keyboard,
+    )
 
 
 @router.callback_query(F.data == "cur_menu:stats")
@@ -163,16 +186,71 @@ async def curator_show_stats(call: CallbackQuery) -> None:
     if not partners:
         await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
         return
-    keyboard = curator_partners_stats_keyboard(partners)
     text = (
         "Статистика приглашенных пользователей.\n"
         "Выберите пользователя, чтобы посмотреть сохранённые данные."
     )
+    await _render_partners_list(
+        call,
+        partners,
+        offset=0,
+        text=text,
+        keyboard_builder=curator_partners_stats_keyboard,
+    )
+
+
+@router.callback_query(F.data.startswith("cur_partners_page:"))
+async def curator_partners_next_page(call: CallbackQuery) -> None:
+    svc = CuratorService(call.message.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
     try:
-        await call.message.edit_text(text, reply_markup=keyboard)
-    except Exception:
-        await call.message.answer(text, reply_markup=keyboard)
-    await call.answer()
+        offset = int(call.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        offset = _CURATOR_PARTNERS_PAGE_SIZE
+    partners = await svc.list_partners(call.from_user.id)
+    if not partners:
+        await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
+        return
+    text = (
+        "Ваши приглашенные пользователи.\n"
+        "Выберите пользователя, чтобы написать ему сообщение."
+    )
+    await _render_partners_list(
+        call,
+        partners,
+        offset=offset,
+        text=text,
+        keyboard_builder=curator_partners_keyboard,
+    )
+
+
+@router.callback_query(F.data.startswith("cur_stats_page:"))
+async def curator_stats_next_page(call: CallbackQuery) -> None:
+    svc = CuratorService(call.message.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
+    try:
+        offset = int(call.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        offset = _CURATOR_PARTNERS_PAGE_SIZE
+    partners = await svc.list_partners(call.from_user.id)
+    if not partners:
+        await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
+        return
+    text = (
+        "Статистика приглашенных пользователей.\n"
+        "Выберите пользователя, чтобы посмотреть сохранённые данные."
+    )
+    await _render_partners_list(
+        call,
+        partners,
+        offset=offset,
+        text=text,
+        keyboard_builder=curator_partners_stats_keyboard,
+    )
 
 
 @router.callback_query(F.data.startswith("cur_stat:"))
