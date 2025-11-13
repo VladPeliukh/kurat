@@ -15,76 +15,76 @@ from .middlewares import setup_middlewares
 from .utils.loggers import main_bot as logger
 
 
-async def start_bot(bot: Bot, dp: Dispatcher):
-	try:
-		# Создаём зависимости
+async def start_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
+    try:
+        # Создаём зависимости
+        services = await setup_services(bot, pool)
 
-		services = setup_services(bot)
+        # Сохраняем в bot.data для глобального доступа
+        dp["services"] = services
 
-		# Сохраняем в bot.data для глобального доступа
-		dp['services'] = services
+        # Ставим команды
+        await setup_commands(bot, services)
 
-		# Ставим команды
-		await setup_commands(bot, services)
+        # # Настройка middleware
+        setup_middlewares(dp)
 
-		# # Настройка middleware
-		setup_middlewares(dp)
+        # Регистрация обработчиков
+        register_handlers(dp)
 
-		# Регистрация обработчиков
-		register_handlers(dp)
+        _, super_admins = await services.admin.list_admins()
 
-		_, super_admins = await services.admin.list_admins()
+        for admin in super_admins:
+            try:
+                await bot.send_message(admin, text="🚀 Бот Запущен 🚀")
+            except (TelegramNotFound, TelegramBadRequest):
+                pass
 
-		for admin in super_admins:
-			try:
-				await bot.send_message(admin, text="🚀 Бот Запущен 🚀")
-			except (TelegramNotFound, TelegramBadRequest):
-				pass
+    except Exception as e:
+        logger.exception(e)
 
 
+async def shutdown_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
+    services: Services = dp["services"]
 
-	except Exception as e:
-		logger.exception(e)
+    _, super_admins = await services.admin.list_admins()
 
-async def shutdown_bot(bot: Bot, dp: Dispatcher):
-	services: Services = dp["services"]
+    for admin in super_admins:
+        try:
+            await bot.send_message(admin, text="🛑 Бот Остановлен 🛑")
+        except TelegramNotFound:
+            pass
 
-	_, super_admins = await services.admin.list_admins()
-
-	for admin in super_admins:
-		try:
-			await bot.send_message(admin, text="🛑 Бот Остановлен 🛑")
-		except TelegramNotFound:
-			pass
-
-	await delete_commands(bot, services)
+    await delete_commands(bot, services)
 
 async def create_pool():
-	return await asyncpg.create_pool(
-		dsn=f"postgresql://{Config.DB_USER}:{Config.DB_PASS}@{Config.DB_HOST}:{Config.DB_PORT}/{Config.DB_NAME}",
-		# или полный URL
-		min_size=5,  # Минимальное число подключений
-		max_size=20,  # Максимальное число подключений
-		timeout=30,  # Таймаут подключения (секунды)
-		command_timeout=60,  # Таймаут выполнения запроса
-		max_inactive_connection_lifetime=300,  # Закрывать неиспользуемые подключения
-	)
+    return await asyncpg.create_pool(
+        dsn=f"postgresql://{Config.DB_USER}:{Config.DB_PASS}@{Config.DB_HOST}:{Config.DB_PORT}/{Config.DB_NAME}",
+        # или полный URL
+        min_size=5,  # Минимальное число подключений
+        max_size=20,  # Максимальное число подключений
+        timeout=30,  # Таймаут подключения (секунды)
+        command_timeout=60,  # Таймаут выполнения запроса
+        max_inactive_connection_lifetime=300,  # Закрывать неиспользуемые подключения
+    )
 
 async def main():
-	# Инициализация
-	bot = Bot(token=Config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-	dp = Dispatcher(storage=MemoryStorage())
+    # Инициализация
+    bot = Bot(token=Config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher(storage=MemoryStorage())
+    pool = await create_pool()
 
-	# Создаем функции запуска и окончания сеанса с параметрами
-	start = partial(start_bot, bot, dp)
-	end = partial(shutdown_bot, bot, dp)
+    # Создаем функции запуска и окончания сеанса с параметрами
+    start = partial(start_bot, bot, dp, pool)
+    end = partial(shutdown_bot, bot, dp, pool)
 
-	# Регистрируем их
-	dp.startup.register(start)
-	dp.shutdown.register(end)
+    # Регистрируем их
+    dp.startup.register(start)
+    dp.shutdown.register(end)
 
-	try:
-		logger.info("Bot started")
-		await dp.start_polling(bot)
-	finally:
-		await bot.session.close()
+    try:
+        logger.info("Bot started")
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
+        await pool.close()
