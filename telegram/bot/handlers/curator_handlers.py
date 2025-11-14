@@ -1,10 +1,12 @@
 import html
 import random
+from datetime import datetime, timezone
 from typing import Callable
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
+from zoneinfo import ZoneInfo
 
 from ..keyboards import (
     captcha_options_keyboard,
@@ -18,7 +20,7 @@ from ..services.curator_service import CuratorService
 from ..utils.captcha import NumberCaptcha
 from ..utils.helpers import build_deeplink
 
-from datetime import datetime
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 router = Router()
 _captcha_generator = NumberCaptcha()
@@ -280,6 +282,9 @@ async def curator_partner_stats(call: CallbackQuery) -> None:
     if promoted_at:
         try:
             dt = datetime.fromisoformat(promoted_at)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.astimezone(MOSCOW_TZ)
             promoted_text = dt.strftime("%d.%m.%Y %H:%M:%S")
         except Exception:
             promoted_text = promoted_at
