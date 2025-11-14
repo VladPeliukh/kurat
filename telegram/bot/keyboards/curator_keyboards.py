@@ -18,7 +18,7 @@ def curator_request_keyboard(partner_id: int) -> InlineKeyboardMarkup:
 def curator_main_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Приглашенные пользователи", callback_data="cur_menu:partners")
-    builder.button(text="Посмотреть статистику приглашенных пользователей", callback_data="cur_menu:stats")
+    builder.button(text="Посмотреть свою статистику", callback_data="cur_menu:stats")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -97,45 +97,3 @@ def curator_partners_keyboard(
     return builder.as_markup()
 
 
-def curator_partners_stats_keyboard(
-    partners: list[dict], *, offset: int = 0, page_size: int = 10
-) -> InlineKeyboardMarkup:
-    total = len(partners)
-    offset = _sanitize_offset(offset, total, page_size)
-
-    builder = InlineKeyboardBuilder()
-    for partner in partners[offset : offset + page_size]:
-        user_id = partner.get("user_id")
-        if not user_id:
-            continue
-        title = format_partner_title(partner)
-        if len(title) > 64:
-            title = title[:61] + "..."
-        builder.row(
-            InlineKeyboardButton(text=title, callback_data=f"cur_stat:{user_id}"),
-            width=1,
-        )
-
-    navigation_buttons: list[InlineKeyboardButton] = []
-    if offset > 0:
-        prev_offset = max(0, offset - page_size)
-        navigation_buttons.append(
-            InlineKeyboardButton(
-                text="⬅️ Обратно", callback_data=f"cur_stats_page:{prev_offset}"
-            )
-        )
-    if offset + page_size < total:
-        next_offset = offset + page_size
-        navigation_buttons.append(
-            InlineKeyboardButton(
-                text="➡️ Далее", callback_data=f"cur_stats_page:{next_offset}"
-            )
-        )
-    if navigation_buttons:
-        builder.row(*navigation_buttons, width=len(navigation_buttons))
-
-    builder.row(
-        InlineKeyboardButton(text="↩️ Назад", callback_data="cur_menu:back"),
-        width=1,
-    )
-    return builder.as_markup()
