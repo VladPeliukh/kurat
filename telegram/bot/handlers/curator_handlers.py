@@ -18,7 +18,7 @@ from ..keyboards import (
 from ..services.curator_service import CuratorService
 from ..utils.captcha import NumberCaptcha
 from ..utils.helpers import build_deeplink
-from ..utils.xlsx import build_simple_table_xlsx
+from ..utils.csv_export import build_simple_table_csv
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
@@ -238,10 +238,10 @@ async def curator_show_stats(call: CallbackQuery) -> None:
     if not rows:
         await call.answer("Не удалось подготовить данные.", show_alert=True)
         return
-    workbook = build_simple_table_xlsx(headers, rows)
+    csv_bytes = build_simple_table_csv(headers, rows)
     document = BufferedInputFile(
-        workbook,
-        filename=f"curator_stats_{call.from_user.id}.xlsx",
+        csv_bytes,
+        filename=f"curator_stats_{call.from_user.id}.csv",
     )
     await call.message.answer_document(
         document,
