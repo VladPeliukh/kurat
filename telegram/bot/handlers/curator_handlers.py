@@ -135,7 +135,7 @@ async def show_curator_menu(message: Message) -> None:
         return
     _pending_curator_messages.pop(message.from_user.id, None)
     await message.answer(
-        "Меню куратора. Выберите действие:",
+        "МЕНЮ КУРАТОРА",
         reply_markup=curator_main_menu_keyboard(),
     )
 
@@ -149,9 +149,9 @@ async def curator_menu_back(call: CallbackQuery) -> None:
     _pending_curator_messages.pop(call.from_user.id, None)
     keyboard = curator_main_menu_keyboard()
     try:
-        await call.message.edit_text("Меню куратора. Выберите действие:", reply_markup=keyboard)
+        await call.message.edit_text("МЕНЮ КУРАТОРА", reply_markup=keyboard)
     except Exception:
-        await call.message.answer("Меню куратора. Выберите действие:", reply_markup=keyboard)
+        await call.message.answer("МЕНЮ КУРАТОРА", reply_markup=keyboard)
     await call.answer()
 
 
