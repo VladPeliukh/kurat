@@ -225,6 +225,23 @@ async def _collect_curator_stats_rows(
     return rows
 
 
+async def _prepare_curator_all_time_stats(
+    svc: CuratorService,
+    curator_id: int,
+) -> tuple[BufferedInputFile, str] | None:
+    partners = await svc.list_partners(curator_id)
+    if not partners:
+        return None
+    rows = await _collect_curator_stats_rows(svc, curator_id, partners)
+    if not rows:
+        return None
+    csv_bytes = build_simple_table_csv(_CURATOR_STATS_HEADERS, rows)
+    filename = f"curator_stats_{curator_id}_all_time.csv"
+    document = BufferedInputFile(csv_bytes, filename=filename)
+    caption = "Ваша статистика приглашенных пользователей за всё время."
+    return document, caption
+
+
 def _build_captcha_options(correct_answer: int, total: int = 9) -> list[int]:
     options = {correct_answer}
     spread = max(3, abs(correct_answer) + 5)
@@ -446,6 +463,32 @@ async def curator_show_stats(call: CallbackQuery, state: FSMContext) -> None:
             )
         except Exception:
             await call.answer("Не удалось показать календарь.", show_alert=True)
+            return
+    await call.answer()
+
+
+@router.callback_query(F.data == "cur_menu:stats_all")
+async def curator_show_all_time_stats(call: CallbackQuery) -> None:
+    svc = CuratorService(call.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
+    result = await _prepare_curator_all_time_stats(svc, call.from_user.id)
+    if result is None:
+        await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
+        return
+    document, caption = result
+    if call.message is not None:
+        await call.message.answer_document(document, caption=caption)
+    else:
+        try:
+            await call.bot.send_document(
+                call.from_user.id,
+                document,
+                caption=caption,
+            )
+        except Exception:
+            await call.answer("Не удалось отправить файл.", show_alert=True)
             return
     await call.answer()
 
@@ -727,20 +770,12 @@ async def handle_curator_full_stats(message: Message) -> None:
         await message.answer("Эта команда доступна только кураторам.")
         return
 
-    partners = await svc.list_partners(message.from_user.id)
-    if not partners:
+    result = await _prepare_curator_all_time_stats(svc, message.from_user.id)
+    if result is None:
         await message.answer("У вас пока нет приглашенных пользователей.")
         return
 
-    rows = await _collect_curator_stats_rows(svc, message.from_user.id, partners)
-    if not rows:
-        await message.answer("У вас пока нет приглашенных пользователей.")
-        return
-
-    csv_bytes = build_simple_table_csv(_CURATOR_STATS_HEADERS, rows)
-    filename = f"curator_stats_{message.from_user.id}_all_time.csv"
-    document = BufferedInputFile(csv_bytes, filename=filename)
-    caption = "Ваша статистика приглашенных пользователей за всё время."
+    document, caption = result
     await message.answer_document(document, caption=caption)
 
 @router.message(CommandStart(deep_link=True))
