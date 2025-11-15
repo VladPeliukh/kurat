@@ -1,24 +1,27 @@
 import html
 import random
+from datetime import datetime, timezone
 from typing import Callable
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
+from zoneinfo import ZoneInfo
 
 from ..keyboards import (
     captcha_options_keyboard,
+    curator_invite_keyboard,
     curator_main_menu_keyboard,
     curator_partners_keyboard,
-    curator_partners_stats_keyboard,
     curator_request_keyboard,
     format_partner_title,
 )
 from ..services.curator_service import CuratorService
 from ..utils.captcha import NumberCaptcha
 from ..utils.helpers import build_deeplink
+from ..utils.csv_export import build_simple_table_csv
 
-from datetime import datetime
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 router = Router()
 _captcha_generator = NumberCaptcha()
@@ -133,9 +136,30 @@ async def show_curator_menu(message: Message) -> None:
         return
     _pending_curator_messages.pop(message.from_user.id, None)
     await message.answer(
-        "Меню куратора. Выберите действие:",
+        "МЕНЮ КУРАТОРА",
         reply_markup=curator_main_menu_keyboard(),
     )
+
+
+@router.callback_query(F.data == "cur_menu:open")
+async def curator_menu_open(call: CallbackQuery) -> None:
+    svc = CuratorService(call.message.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
+    _pending_curator_messages.pop(call.from_user.id, None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    try:
+        await call.message.answer(
+            "МЕНЮ КУРАТОРА",
+            reply_markup=curator_main_menu_keyboard(),
+        )
+    except Exception:
+        pass
+    await call.answer()
 
 
 @router.callback_query(F.data == "cur_menu:back")
@@ -147,9 +171,9 @@ async def curator_menu_back(call: CallbackQuery) -> None:
     _pending_curator_messages.pop(call.from_user.id, None)
     keyboard = curator_main_menu_keyboard()
     try:
-        await call.message.edit_text("Меню куратора. Выберите действие:", reply_markup=keyboard)
+        await call.message.edit_text("МЕНЮ КУРАТОРА", reply_markup=keyboard)
     except Exception:
-        await call.message.answer("Меню куратора. Выберите действие:", reply_markup=keyboard)
+        await call.message.answer("МЕНЮ КУРАТОРА", reply_markup=keyboard)
     await call.answer()
 
 
@@ -186,17 +210,66 @@ async def curator_show_stats(call: CallbackQuery) -> None:
     if not partners:
         await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
         return
-    text = (
-        "Статистика приглашенных пользователей.\n"
-        "Выберите пользователя, чтобы посмотреть сохранённые данные."
+    headers = [
+        "ID",
+        "Имя",
+        "Username",
+        "Ссылка приглашения",
+        "Персональная ссылка",
+        "Дата и время назначения",
+    ]
+    rows: list[list[str | int]] = []
+    for partner in partners:
+        partner_id = partner.get("user_id")
+        if not partner_id:
+            continue
+        stats = await svc.get_partner_statistics(call.from_user.id, partner_id)
+        if not stats:
+            stats = {
+                "user_id": partner_id,
+                "full_name": partner.get("full_name") or "",
+                "username": partner.get("username"),
+                "source_link": None,
+                "invite_link": None,
+                "promoted_at": None,
+            }
+        username = stats.get("username") or partner.get("username") or ""
+        if username and not username.startswith("@"):
+            username = f"@{username}"
+        promoted_at = stats.get("promoted_at")
+        promoted_text = ""
+        if promoted_at:
+            try:
+                dt = datetime.fromisoformat(promoted_at)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.astimezone(MOSCOW_TZ)
+                promoted_text = dt.strftime("%d.%m.%Y %H:%M:%S")
+            except Exception:
+                promoted_text = promoted_at
+        rows.append(
+            [
+                stats.get("user_id") or partner_id,
+                stats.get("full_name") or partner.get("full_name") or "",
+                username,
+                stats.get("source_link") or "",
+                stats.get("invite_link") or "",
+                promoted_text,
+            ]
+        )
+    if not rows:
+        await call.answer("Не удалось подготовить данные.", show_alert=True)
+        return
+    csv_bytes = build_simple_table_csv(headers, rows)
+    document = BufferedInputFile(
+        csv_bytes,
+        filename=f"curator_stats_{call.from_user.id}.csv",
     )
-    await _render_partners_list(
-        call,
-        partners,
-        offset=0,
-        text=text,
-        keyboard_builder=curator_partners_stats_keyboard,
+    await call.message.answer_document(
+        document,
+        caption="Ваша статистика приглашенных пользователей.",
     )
+    await call.answer()
 
 
 @router.callback_query(F.data.startswith("cur_partners_page:"))
@@ -227,87 +300,6 @@ async def curator_partners_next_page(call: CallbackQuery) -> None:
         keyboard_builder=curator_partners_keyboard,
     )
 
-
-@router.callback_query(F.data.startswith("cur_stats_page:"))
-async def curator_stats_next_page(call: CallbackQuery) -> None:
-    svc = CuratorService(call.message.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
-        return
-    try:
-        offset = int(call.data.split(":", 1)[1])
-    except (ValueError, IndexError):
-        offset = _CURATOR_PARTNERS_PAGE_SIZE
-    else:
-        offset = max(0, offset)
-    partners = await svc.list_partners(call.from_user.id)
-    if not partners:
-        await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
-        return
-    text = (
-        "Статистика приглашенных пользователей.\n"
-        "Выберите пользователя, чтобы посмотреть сохранённые данные."
-    )
-    await _render_partners_list(
-        call,
-        partners,
-        offset=offset,
-        text=text,
-        keyboard_builder=curator_partners_stats_keyboard,
-    )
-
-
-@router.callback_query(F.data.startswith("cur_stat:"))
-async def curator_partner_stats(call: CallbackQuery) -> None:
-    svc = CuratorService(call.message.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
-        return
-    try:
-        partner_id = int(call.data.split(":", 1)[1])
-    except (ValueError, IndexError):
-        await call.answer("Не удалось определить пользователя.", show_alert=True)
-        return
-    stats = await svc.get_partner_statistics(call.from_user.id, partner_id)
-    if not stats:
-        await call.answer("Данные по этому пользователю недоступны.", show_alert=True)
-        return
-    username = stats.get("username") or ""
-    if username and not username.startswith("@"):
-        username = f"@{username}"
-    promoted_at = stats.get("promoted_at")
-    promoted_text = None
-    if promoted_at:
-        try:
-            dt = datetime.fromisoformat(promoted_at)
-            promoted_text = dt.strftime("%d.%m.%Y %H:%M:%S")
-        except Exception:
-            promoted_text = promoted_at
-    lines = [
-        "<b>Данные пользователя</b>",
-        f"ID: <code>{stats['user_id']}</code>",
-    ]
-    full_name = stats.get("full_name")
-    if full_name:
-        lines.append(f"Имя: {html.escape(full_name)}")
-    if username:
-        lines.append(f"Username: {html.escape(username)}")
-    source_link = stats.get("source_link")
-    if source_link:
-        lines.append(f"Источник: {html.escape(source_link)}")
-    invite_link = stats.get("invite_link")
-    if invite_link:
-        lines.append(f"Персональная ссылка: {html.escape(invite_link)}")
-    if promoted_text:
-        lines.append(f"Дата назначения куратором: {html.escape(promoted_text)}")
-    if not source_link and not invite_link and not promoted_text:
-        lines.append("Пользователь ещё не стал куратором или данные недоступны.")
-    text = "\n".join(lines)
-    await call.answer()
-    try:
-        await call.message.answer(text, parse_mode="HTML")
-    except Exception:
-        pass
 
 @router.callback_query(F.data.startswith("cur_partner:"))
 async def curator_message_prompt(call: CallbackQuery) -> None:
@@ -346,7 +338,12 @@ async def handle_invite(message: Message) -> None:
         message.from_user.id, message.from_user.username, message.from_user.full_name
     )
     count = await svc.partners_count(message.from_user.id)
-    await message.answer(f"Ваша персональная ссылка:\n{link}\n\nПриглашено: {count}")
+    text = f"Ваша персональная ссылка:\n{link}\n\nПриглашено: {count}"
+    await message.answer(
+        text,
+        reply_markup=curator_invite_keyboard(),
+        disable_web_page_preview=True,
+    )
 
 @router.message(CommandStart(deep_link=True))
 async def start_with_payload(message: Message) -> None:
@@ -465,11 +462,23 @@ async def verify_captcha(call: CallbackQuery) -> None:
     await svc.mark_captcha_passed(call.from_user.id)
     source_info = await svc.get_invite_source(call.from_user.id)
     await call.answer("Верно!", show_alert=False)
+    captcha_deleted = False
     try:
-        await call.message.edit_caption("✅ Капча успешно пройдена", reply_markup=None)
+        await call.message.delete()
     except Exception:
         try:
-            await call.message.edit_text("✅ Капча успешно пройдена", reply_markup=None)
+            await call.message.edit_caption("✅ Капча успешно пройдена", reply_markup=None)
+        except Exception:
+            try:
+                await call.message.edit_text("✅ Капча успешно пройдена", reply_markup=None)
+            except Exception:
+                pass
+    else:
+        captcha_deleted = True
+
+    if captcha_deleted:
+        try:
+            await call.message.answer("✅ Капча успешно пройдена")
         except Exception:
             pass
 
