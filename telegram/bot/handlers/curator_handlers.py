@@ -719,6 +719,30 @@ async def handle_invite(message: Message) -> None:
         full_name=message.from_user.full_name,
     )
 
+
+@router.message(Command('static'))
+async def handle_curator_full_stats(message: Message) -> None:
+    svc = CuratorService(message.bot)
+    if not await svc.is_curator(message.from_user.id):
+        await message.answer("Эта команда доступна только кураторам.")
+        return
+
+    partners = await svc.list_partners(message.from_user.id)
+    if not partners:
+        await message.answer("У вас пока нет приглашенных пользователей.")
+        return
+
+    rows = await _collect_curator_stats_rows(svc, message.from_user.id, partners)
+    if not rows:
+        await message.answer("У вас пока нет приглашенных пользователей.")
+        return
+
+    csv_bytes = build_simple_table_csv(_CURATOR_STATS_HEADERS, rows)
+    filename = f"curator_stats_{message.from_user.id}_all_time.csv"
+    document = BufferedInputFile(csv_bytes, filename=filename)
+    caption = "Ваша статистика приглашенных пользователей за всё время."
+    await message.answer_document(document, caption=caption)
+
 @router.message(CommandStart(deep_link=True))
 async def start_with_payload(message: Message) -> None:
     payload = message.text.split(' ', 1)[1] if ' ' in message.text else ''
