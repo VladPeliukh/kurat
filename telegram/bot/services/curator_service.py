@@ -130,6 +130,13 @@ class CuratorService:
             )
         return bool(record and record.get("ref_code"))
 
+    async def list_curator_ids(self) -> list[int]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT user_id FROM curators WHERE ref_code IS NOT NULL",
+            )
+        return [row.get("user_id") for row in rows if row and row.get("user_id") is not None]
+
     async def ensure_curator_record(
         self,
         user_id: int,
