@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from ..keyboards import (
     captcha_options_keyboard,
     curator_cancel_message_keyboard,
+    curator_back_to_menu_keyboard,
     curator_invite_keyboard,
     curator_main_menu_keyboard,
     curator_partners_keyboard,
@@ -602,7 +603,10 @@ async def handle_curator_outgoing_message(message: Message) -> None:
     except Exception:
         await message.answer("Не удалось отправить сообщение этому пользователю.")
     else:
-        await message.answer("Сообщение отправлено.")
+        await message.answer(
+            "Сообщение отправлено.",
+            reply_markup=curator_back_to_menu_keyboard(),
+        )
     finally:
         _pending_curator_messages.pop(message.from_user.id, None)
 

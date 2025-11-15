@@ -32,6 +32,14 @@ def curator_invite_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def curator_back_to_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="В меню куратора", callback_data="cur_menu:open")]
+        ]
+    )
+
+
 def curator_cancel_message_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
