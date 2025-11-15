@@ -5,11 +5,18 @@ from typing import Callable
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    BotCommandScopeChat,
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    Message,
+)
 from zoneinfo import ZoneInfo
 
 from ..keyboards import (
     captcha_options_keyboard,
+    curator_cancel_message_keyboard,
     curator_invite_keyboard,
     curator_main_menu_keyboard,
     curator_partners_keyboard,
@@ -18,6 +25,7 @@ from ..keyboards import (
 )
 from ..services.curator_service import CuratorService
 from ..utils.captcha import NumberCaptcha
+from ..utils.commands import CURATOR_COMMANDS
 from ..utils.helpers import build_deeplink
 from ..utils.csv_export import build_simple_table_csv
 
@@ -27,6 +35,28 @@ router = Router()
 _captcha_generator = NumberCaptcha()
 _pending_curator_messages: dict[int, int] = {}
 _CURATOR_PARTNERS_PAGE_SIZE = 10
+
+
+async def _send_curator_personal_link(
+    target: Message,
+    svc: CuratorService,
+    *,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+) -> None:
+    link = await svc.get_or_create_personal_link(
+        user_id,
+        username,
+        full_name or "",
+    )
+    count = await svc.partners_count(user_id)
+    text = f"Ваша персональная ссылка:\n{link}\n\nПриглашено: {count}"
+    await target.answer(
+        text,
+        reply_markup=curator_invite_keyboard(),
+        disable_web_page_preview=True,
+    )
 
 
 def _build_captcha_options(correct_answer: int, total: int = 9) -> list[int]:
@@ -143,7 +173,7 @@ async def show_curator_menu(message: Message) -> None:
 
 @router.callback_query(F.data == "cur_menu:open")
 async def curator_menu_open(call: CallbackQuery) -> None:
-    svc = CuratorService(call.message.bot)
+    svc = CuratorService(call.bot)
     if not await svc.is_curator(call.from_user.id):
         await call.answer("Эта функция доступна только кураторам.", show_alert=True)
         return
@@ -164,7 +194,7 @@ async def curator_menu_open(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "cur_menu:back")
 async def curator_menu_back(call: CallbackQuery) -> None:
-    svc = CuratorService(call.message.bot)
+    svc = CuratorService(call.bot)
     if not await svc.is_curator(call.from_user.id):
         await call.answer("Эта функция доступна только кураторам.", show_alert=True)
         return
@@ -198,6 +228,26 @@ async def curator_show_partners(call: CallbackQuery) -> None:
         text=text,
         keyboard_builder=curator_partners_keyboard,
     )
+
+
+@router.callback_query(F.data == "cur_menu:invite")
+async def curator_show_invite(call: CallbackQuery) -> None:
+    svc = CuratorService(call.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
+    if call.message is None:
+        await call.answer("Не удалось отправить ссылку.", show_alert=True)
+        return
+    _pending_curator_messages.pop(call.from_user.id, None)
+    await _send_curator_personal_link(
+        call.message,
+        svc,
+        user_id=call.from_user.id,
+        username=call.from_user.username,
+        full_name=call.from_user.full_name,
+    )
+    await call.answer()
 
 
 @router.callback_query(F.data == "cur_menu:stats")
@@ -321,10 +371,13 @@ async def curator_message_prompt(call: CallbackQuery) -> None:
     _pending_curator_messages[call.from_user.id] = partner_id
     prompt = (
         f"Напишите сообщение для {html.escape(display_name)}.\n"
-        "Отправьте /cancel, чтобы отменить."
+        "Используйте кнопку «Отменить», чтобы прекратить отправку."
     )
     try:
-        await call.message.answer(prompt)
+        await call.message.answer(
+            prompt,
+            reply_markup=curator_cancel_message_keyboard(),
+        )
     except Exception:
         pass
     await call.answer("Введите сообщение", show_alert=False)
@@ -334,15 +387,12 @@ async def handle_invite(message: Message) -> None:
     if not await svc.is_curator(message.from_user.id):
         await message.answer("Эта команда доступна только кураторам.")
         return
-    link = await svc.get_or_create_personal_link(
-        message.from_user.id, message.from_user.username, message.from_user.full_name
-    )
-    count = await svc.partners_count(message.from_user.id)
-    text = f"Ваша персональная ссылка:\n{link}\n\nПриглашено: {count}"
-    await message.answer(
-        text,
-        reply_markup=curator_invite_keyboard(),
-        disable_web_page_preview=True,
+    await _send_curator_personal_link(
+        message,
+        svc,
+        user_id=message.from_user.id,
+        username=message.from_user.username,
+        full_name=message.from_user.full_name,
     )
 
 @router.message(CommandStart(deep_link=True))
@@ -495,6 +545,29 @@ async def verify_captcha(call: CallbackQuery) -> None:
     await call.message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
 
 
+@router.callback_query(F.data == "cur_msg:cancel")
+async def cancel_curator_message(call: CallbackQuery) -> None:
+    svc = CuratorService(call.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
+    active = _pending_curator_messages.pop(call.from_user.id, None)
+    if call.message:
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+    if active is None:
+        await call.answer("Нет активного действия.", show_alert=True)
+        return
+    if call.message:
+        try:
+            await call.message.answer("Действие отменено.")
+        except Exception:
+            pass
+    await call.answer()
+
+
 @router.message(Command("cancel"))
 async def cancel_curator_action(message: Message) -> None:
     if _pending_curator_messages.pop(message.from_user.id, None) is not None:
@@ -514,7 +587,7 @@ async def handle_curator_outgoing_message(message: Message) -> None:
     if trimmed.startswith("/"):
         return
     if not trimmed:
-        await message.answer("Пожалуйста, отправьте текстовое сообщение или /cancel.")
+        await message.answer("Пожалуйста, отправьте текстовое сообщение или нажмите кнопку «Отменить».")
         return
     svc = CuratorService(message.bot)
     if not await svc.is_partner(message.from_user.id, partner_id):
@@ -565,7 +638,18 @@ async def approve_curator(call: CallbackQuery):
     except Exception:
         pass
     try:
-        await call.bot.send_message(partner_id, f"Ваша заявка одобрена! Теперь вы куратор.\nВаша ссылка:\n{new_link}")
+        await call.bot.set_my_commands(
+            CURATOR_COMMANDS,
+            scope=BotCommandScopeChat(chat_id=partner_id),
+        )
+    except Exception:
+        pass
+    try:
+        await call.bot.send_message(
+            partner_id,
+            f"Ваша заявка одобрена! Теперь вы куратор.\nВаша ссылка:\n{new_link}",
+            disable_web_page_preview=True,
+        )
     except Exception:
         pass
 

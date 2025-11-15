@@ -17,6 +17,7 @@ def curator_request_keyboard(partner_id: int) -> InlineKeyboardMarkup:
 
 def curator_main_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="Ваша ссылка", callback_data="cur_menu:invite")
     builder.button(text="Приглашенные пользователи", callback_data="cur_menu:partners")
     builder.button(text="Посмотреть свою статистику", callback_data="cur_menu:stats")
     builder.adjust(1)
@@ -27,6 +28,14 @@ def curator_invite_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Ваше меню куратора", callback_data="cur_menu:open")]
+        ]
+    )
+
+
+def curator_cancel_message_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Отменить", callback_data="cur_msg:cancel")]
         ]
     )
 
