@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import Iterable
 
@@ -324,9 +325,55 @@ class CuratorCalendarKeyboard:
         return builder.as_markup()
 
 
+def _coerce_calendar_state(raw: CalendarState | dict | None) -> CalendarState:
+    if isinstance(raw, CalendarState):
+        return raw
+
+    today = datetime.now().date()
+    if isinstance(raw, dict):
+        try:
+            view_value = raw.get("view")
+            view = CalendarView(view_value) if view_value else CalendarView.DAYS
+        except ValueError:
+            view = CalendarView.DAYS
+
+        year = raw.get("year")
+        month = raw.get("month")
+        year_page = raw.get("year_page")
+
+        try:
+            year = int(year) if year else today.year
+        except (TypeError, ValueError):
+            year = today.year
+
+        try:
+            month = int(month) if month else today.month
+        except (TypeError, ValueError):
+            month = today.month
+
+        try:
+            year_page = int(year_page) if year_page is not None else None
+        except (TypeError, ValueError):
+            year_page = None
+
+        return CalendarState(year=year, month=month, view=view, year_page=year_page)
+
+    return CalendarState(year=today.year, month=today.month)
+
+
+def build_calendar_keyboard(
+    calendar_state: CalendarState | dict | None,
+    *,
+    target: str,
+) -> InlineKeyboardMarkup:
+    state = _coerce_calendar_state(calendar_state)
+    return CuratorCalendarKeyboard.build(state, target=target)
+
+
 __all__ = [
     "CalendarState",
     "CalendarView",
     "CuratorCalendarCallback",
     "CuratorCalendarKeyboard",
+    "build_calendar_keyboard",
 ]
