@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from ..keyboards import (
     captcha_options_keyboard,
+    curator_invite_keyboard,
     curator_main_menu_keyboard,
     curator_partners_keyboard,
     curator_request_keyboard,
@@ -138,6 +139,27 @@ async def show_curator_menu(message: Message) -> None:
         "МЕНЮ КУРАТОРА",
         reply_markup=curator_main_menu_keyboard(),
     )
+
+
+@router.callback_query(F.data == "cur_menu:open")
+async def curator_menu_open(call: CallbackQuery) -> None:
+    svc = CuratorService(call.message.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
+    _pending_curator_messages.pop(call.from_user.id, None)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    try:
+        await call.message.answer(
+            "МЕНЮ КУРАТОРА",
+            reply_markup=curator_main_menu_keyboard(),
+        )
+    except Exception:
+        pass
+    await call.answer()
 
 
 @router.callback_query(F.data == "cur_menu:back")
@@ -316,7 +338,12 @@ async def handle_invite(message: Message) -> None:
         message.from_user.id, message.from_user.username, message.from_user.full_name
     )
     count = await svc.partners_count(message.from_user.id)
-    await message.answer(f"Ваша персональная ссылка:\n{link}\n\nПриглашено: {count}")
+    text = f"Ваша персональная ссылка:\n{link}\n\nПриглашено: {count}"
+    await message.answer(
+        text,
+        reply_markup=curator_invite_keyboard(),
+        disable_web_page_preview=True,
+    )
 
 @router.message(CommandStart(deep_link=True))
 async def start_with_payload(message: Message) -> None:
@@ -435,11 +462,23 @@ async def verify_captcha(call: CallbackQuery) -> None:
     await svc.mark_captcha_passed(call.from_user.id)
     source_info = await svc.get_invite_source(call.from_user.id)
     await call.answer("Верно!", show_alert=False)
+    captcha_deleted = False
     try:
-        await call.message.edit_caption("✅ Капча успешно пройдена", reply_markup=None)
+        await call.message.delete()
     except Exception:
         try:
-            await call.message.edit_text("✅ Капча успешно пройдена", reply_markup=None)
+            await call.message.edit_caption("✅ Капча успешно пройдена", reply_markup=None)
+        except Exception:
+            try:
+                await call.message.edit_text("✅ Капча успешно пройдена", reply_markup=None)
+            except Exception:
+                pass
+    else:
+        captcha_deleted = True
+
+    if captcha_deleted:
+        try:
+            await call.message.answer("✅ Капча успешно пройдена")
         except Exception:
             pass
 

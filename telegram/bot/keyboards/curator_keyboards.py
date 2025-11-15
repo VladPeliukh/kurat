@@ -23,6 +23,14 @@ def curator_main_menu_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def curator_invite_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Ваше меню куратора", callback_data="cur_menu:open")]
+        ]
+    )
+
+
 def format_partner_title(partner: dict) -> str:
     user_id = partner.get("user_id")
     full_name = (partner.get("full_name") or "").strip()
