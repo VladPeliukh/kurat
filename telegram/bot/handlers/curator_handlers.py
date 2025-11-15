@@ -1,10 +1,11 @@
 import html
 import random
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Callable
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     BotCommandScopeChat,
     BufferedInputFile,
@@ -14,21 +15,19 @@ from aiogram.types import (
 )
 from zoneinfo import ZoneInfo
 
-from ..keyboards import (
-    captcha_options_keyboard,
-    curator_cancel_message_keyboard,
-    curator_back_to_menu_keyboard,
-    curator_invite_keyboard,
-    curator_main_menu_keyboard,
-    curator_partners_keyboard,
-    curator_request_keyboard,
-    format_partner_title,
+from ..keyboards import CaptchaKeyboards, CuratorKeyboards
+from ..keyboards.calendar import (
+    CalendarState,
+    CalendarView,
+    CuratorCalendarCallback,
+    CuratorCalendarKeyboard,
 )
 from ..services.curator_service import CuratorService
 from ..utils.captcha import NumberCaptcha
 from ..utils.commands import CURATOR_COMMANDS
 from ..utils.helpers import build_deeplink
 from ..utils.csv_export import build_simple_table_csv
+from ..states.curator_states import CuratorStatsSelection
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
@@ -36,6 +35,125 @@ router = Router()
 _captcha_generator = NumberCaptcha()
 _pending_curator_messages: dict[int, int] = {}
 _CURATOR_PARTNERS_PAGE_SIZE = 10
+_CURATOR_STATS_HEADERS = [
+    "ID",
+    "Имя",
+    "Username",
+    "Ссылка приглашения",
+    "Персональная ссылка",
+    "Дата и время назначения",
+]
+
+
+def _initial_calendar_state(reference: date | None = None) -> CalendarState:
+    if reference is None:
+        reference = datetime.now(MOSCOW_TZ).date()
+    year_page = reference.year - (reference.year % 12 or 12)
+    if year_page < 1:
+        year_page = 1
+    return CalendarState(
+        year=reference.year,
+        month=reference.month,
+        view=CalendarView.DAYS,
+        year_page=year_page,
+    )
+
+
+def _serialize_calendar_state(state: CalendarState) -> dict:
+    return {
+        "year": state.year,
+        "month": state.month,
+        "view": state.view.value,
+        "year_page": state.year_page,
+    }
+
+
+def _deserialize_calendar_state(
+    raw: CalendarState | dict | None,
+    *,
+    reference: date | None = None,
+) -> CalendarState:
+    if isinstance(raw, CalendarState):
+        return raw
+    if isinstance(raw, dict):
+        try:
+            view = CalendarView(raw.get("view", CalendarView.DAYS.value))
+        except ValueError:
+            view = CalendarView.DAYS
+        year = int(raw.get("year")) if raw.get("year") else None
+        month = int(raw.get("month")) if raw.get("month") else None
+        year_page = raw.get("year_page")
+        if year_page is not None:
+            try:
+                year_page = int(year_page)
+            except (TypeError, ValueError):
+                year_page = None
+        if reference is None:
+            reference = datetime.now(MOSCOW_TZ).date()
+        return CalendarState(
+            year=year or reference.year,
+            month=month or reference.month,
+            view=view,
+            year_page=year_page,
+        )
+    return _initial_calendar_state(reference)
+
+
+def _refresh_year_page(state: CalendarState) -> None:
+    state.year_page = state.year - (state.year % 12 or 12)
+    if state.year_page < 1:
+        state.year_page = 1
+
+
+async def _get_calendar_state(state: FSMContext, target: str) -> CalendarState:
+    data = await state.get_data()
+    key = f"{target}_calendar"
+    return _deserialize_calendar_state(data.get(key))
+
+
+async def _store_calendar_state(
+    state: FSMContext,
+    target: str,
+    calendar_state: CalendarState,
+) -> None:
+    await state.update_data(**{f"{target}_calendar": _serialize_calendar_state(calendar_state)})
+
+
+async def _store_selected_date(
+    state: FSMContext,
+    target: str,
+    selected_date: date | None,
+) -> None:
+    await state.update_data(
+        **{
+            f"{target}_date": selected_date.isoformat() if selected_date else None,
+        }
+    )
+
+
+async def _get_selected_date(state: FSMContext, target: str) -> date | None:
+    data = await state.get_data()
+    raw = data.get(f"{target}_date")
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(str(raw))
+    except ValueError:
+        return None
+
+
+async def _refresh_calendar_markup(
+    call: CallbackQuery,
+    *,
+    target: str,
+    calendar_state: CalendarState,
+) -> None:
+    try:
+        await call.message.edit_reply_markup(
+            reply_markup=CuratorCalendarKeyboard.build(calendar_state, target=target)
+        )
+    except Exception:
+        pass
 
 
 async def _send_curator_personal_link(
@@ -55,9 +173,73 @@ async def _send_curator_personal_link(
     text = f"Ваша персональная ссылка:\n{link}\n\nПриглашено: {count}"
     await target.answer(
         text,
-        reply_markup=curator_invite_keyboard(),
+        reply_markup=CuratorKeyboards.invite(),
         disable_web_page_preview=True,
     )
+
+
+async def _collect_curator_stats_rows(
+    svc: CuratorService,
+    curator_id: int,
+    partners: list[dict],
+) -> list[list[str | int]]:
+    rows: list[list[str | int]] = []
+    for partner in partners:
+        partner_id = partner.get("user_id")
+        if not partner_id:
+            continue
+        stats = await svc.get_partner_statistics(curator_id, partner_id)
+        if not stats:
+            stats = {
+                "user_id": partner_id,
+                "full_name": partner.get("full_name") or "",
+                "username": partner.get("username"),
+                "source_link": None,
+                "invite_link": None,
+                "promoted_at": None,
+            }
+        username = stats.get("username") or partner.get("username") or ""
+        if username and not str(username).startswith("@"):
+            username = f"@{username}"
+        promoted_at = stats.get("promoted_at")
+        promoted_text = ""
+        if promoted_at:
+            try:
+                dt = datetime.fromisoformat(str(promoted_at))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.astimezone(MOSCOW_TZ)
+                promoted_text = dt.strftime("%d.%m.%Y %H:%M:%S")
+            except Exception:
+                promoted_text = str(promoted_at)
+        rows.append(
+            [
+                stats.get("user_id") or partner_id,
+                stats.get("full_name") or partner.get("full_name") or "",
+                username,
+                stats.get("source_link") or "",
+                stats.get("invite_link") or "",
+                promoted_text,
+            ]
+        )
+    return rows
+
+
+async def _prepare_curator_all_time_stats(
+    svc: CuratorService,
+    curator_id: int,
+) -> tuple[BufferedInputFile, str] | None:
+    partners = await svc.list_partners(curator_id)
+    if not partners:
+        return None
+    rows = await _collect_curator_stats_rows(svc, curator_id, partners)
+    if not rows:
+        return None
+    csv_bytes = build_simple_table_csv(_CURATOR_STATS_HEADERS, rows)
+    filename = f"curator_stats_{curator_id}_all_time.csv"
+    document = BufferedInputFile(csv_bytes, filename=filename)
+    caption = "Ваша статистика приглашенных пользователей за всё время."
+    return document, caption
 
 
 def _build_captcha_options(correct_answer: int, total: int = 9) -> list[int]:
@@ -96,7 +278,7 @@ async def _send_captcha_challenge(message: Message, user_id: int, svc: CuratorSe
     answer, image_bytes = await _captcha_generator.random_captcha()
     options = _build_captcha_options(answer)
     await svc.store_captcha_challenge(user_id, curator_id, answer)
-    keyboard = captcha_options_keyboard(options)
+    keyboard = CaptchaKeyboards.options(options)
     captcha_image = BufferedInputFile(image_bytes, filename="captcha.png")
     await message.answer_photo(
         captcha_image,
@@ -126,7 +308,7 @@ async def _notify_curator(
         source_link=source_link,
         payload=payload,
     )
-    keyboard = curator_request_keyboard(partner_id)
+    keyboard = CuratorKeyboards.request(partner_id)
     safe_name = html.escape(full_name or "")
     try:
         await bot.send_message(
@@ -168,7 +350,7 @@ async def show_curator_menu(message: Message) -> None:
     _pending_curator_messages.pop(message.from_user.id, None)
     await message.answer(
         "МЕНЮ КУРАТОРА",
-        reply_markup=curator_main_menu_keyboard(),
+        reply_markup=CuratorKeyboards.main_menu(),
     )
 
 
@@ -186,7 +368,7 @@ async def curator_menu_open(call: CallbackQuery) -> None:
     try:
         await call.message.answer(
             "МЕНЮ КУРАТОРА",
-            reply_markup=curator_main_menu_keyboard(),
+            reply_markup=CuratorKeyboards.main_menu(),
         )
     except Exception:
         pass
@@ -200,7 +382,7 @@ async def curator_menu_back(call: CallbackQuery) -> None:
         await call.answer("Эта функция доступна только кураторам.", show_alert=True)
         return
     _pending_curator_messages.pop(call.from_user.id, None)
-    keyboard = curator_main_menu_keyboard()
+    keyboard = CuratorKeyboards.main_menu()
     try:
         await call.message.edit_text("МЕНЮ КУРАТОРА", reply_markup=keyboard)
     except Exception:
@@ -227,7 +409,7 @@ async def curator_show_partners(call: CallbackQuery) -> None:
         partners,
         offset=0,
         text=text,
-        keyboard_builder=curator_partners_keyboard,
+        keyboard_builder=CuratorKeyboards.partners,
     )
 
 
@@ -252,76 +434,260 @@ async def curator_show_invite(call: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "cur_menu:stats")
-async def curator_show_stats(call: CallbackQuery) -> None:
-    svc = CuratorService(call.message.bot)
+async def curator_show_stats(call: CallbackQuery, state: FSMContext) -> None:
+    svc = CuratorService(call.bot)
     if not await svc.is_curator(call.from_user.id):
         await call.answer("Эта функция доступна только кураторам.", show_alert=True)
         return
-    partners = await svc.list_partners(call.from_user.id)
-    if not partners:
+    total_partners = await svc.partners_count(call.from_user.id)
+    if total_partners == 0:
         await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
         return
-    headers = [
-        "ID",
-        "Имя",
-        "Username",
-        "Ссылка приглашения",
-        "Персональная ссылка",
-        "Дата и время назначения",
-    ]
-    rows: list[list[str | int]] = []
-    for partner in partners:
-        partner_id = partner.get("user_id")
-        if not partner_id:
-            continue
-        stats = await svc.get_partner_statistics(call.from_user.id, partner_id)
-        if not stats:
-            stats = {
-                "user_id": partner_id,
-                "full_name": partner.get("full_name") or "",
-                "username": partner.get("username"),
-                "source_link": None,
-                "invite_link": None,
-                "promoted_at": None,
-            }
-        username = stats.get("username") or partner.get("username") or ""
-        if username and not username.startswith("@"):
-            username = f"@{username}"
-        promoted_at = stats.get("promoted_at")
-        promoted_text = ""
-        if promoted_at:
-            try:
-                dt = datetime.fromisoformat(promoted_at)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                dt = dt.astimezone(MOSCOW_TZ)
-                promoted_text = dt.strftime("%d.%m.%Y %H:%M:%S")
-            except Exception:
-                promoted_text = promoted_at
-        rows.append(
-            [
-                stats.get("user_id") or partner_id,
-                stats.get("full_name") or partner.get("full_name") or "",
-                username,
-                stats.get("source_link") or "",
-                stats.get("invite_link") or "",
-                promoted_text,
-            ]
-        )
-    if not rows:
-        await call.answer("Не удалось подготовить данные.", show_alert=True)
-        return
-    csv_bytes = build_simple_table_csv(headers, rows)
-    document = BufferedInputFile(
-        csv_bytes,
-        filename=f"curator_stats_{call.from_user.id}.csv",
-    )
-    await call.message.answer_document(
-        document,
-        caption="Ваша статистика приглашенных пользователей.",
-    )
+    await state.clear()
+    start_state = _initial_calendar_state()
+    await state.set_state(CuratorStatsSelection.choosing_start)
+    await _store_calendar_state(state, "start", start_state)
+    await _store_selected_date(state, "start", None)
+    await _store_selected_date(state, "end", None)
+    await _store_calendar_state(state, "end", _initial_calendar_state())
+    prompt = "Выберите начальную дату периода:"
+    markup = CuratorCalendarKeyboard.build(start_state, target="start")
+    try:
+        await call.message.answer(prompt, reply_markup=markup)
+    except Exception:
+        try:
+            await call.bot.send_message(
+                call.from_user.id,
+                prompt,
+                reply_markup=markup,
+            )
+        except Exception:
+            await call.answer("Не удалось показать календарь.", show_alert=True)
+            return
     await call.answer()
 
+
+@router.callback_query(F.data == "cur_menu:stats_all")
+async def curator_show_all_time_stats(call: CallbackQuery) -> None:
+    svc = CuratorService(call.bot)
+    if not await svc.is_curator(call.from_user.id):
+        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+        return
+    result = await _prepare_curator_all_time_stats(svc, call.from_user.id)
+    if result is None:
+        await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
+        return
+    document, caption = result
+    if call.message is not None:
+        await call.message.answer_document(document, caption=caption)
+    else:
+        try:
+            await call.bot.send_document(
+                call.from_user.id,
+                document,
+                caption=caption,
+            )
+        except Exception:
+            await call.answer("Не удалось отправить файл.", show_alert=True)
+            return
+    await call.answer()
+
+
+@router.callback_query(CuratorCalendarCallback.filter())
+async def curator_stats_calendar_action(
+    call: CallbackQuery,
+    callback_data: CuratorCalendarCallback,
+    state: FSMContext,
+) -> None:
+    current_state = await state.get_state()
+    allowed_states = {
+        CuratorStatsSelection.choosing_start.state,
+        CuratorStatsSelection.choosing_end.state,
+    }
+    if current_state not in allowed_states:
+        await call.answer("Этот календарь больше не активен.", show_alert=True)
+        return
+    target = callback_data.target
+    if target not in {"start", "end"}:
+        await call.answer()
+        return
+    if call.message is None:
+        await call.answer()
+        return
+    calendar_state = await _get_calendar_state(state, target)
+    action = callback_data.action
+    if action == "noop":
+        await call.answer()
+        return
+
+    if action in {"prev_month", "next_month"}:
+        year = max(1, callback_data.year)
+        month = min(12, max(1, callback_data.month))
+        calendar_state.year = year
+        calendar_state.month = month
+        calendar_state.view = CalendarView.DAYS
+        _refresh_year_page(calendar_state)
+        await _store_calendar_state(state, target, calendar_state)
+        await _refresh_calendar_markup(call, target=target, calendar_state=calendar_state)
+        await call.answer()
+        return
+
+    if action == "show_months":
+        calendar_state.view = CalendarView.MONTHS
+        await _store_calendar_state(state, target, calendar_state)
+        await _refresh_calendar_markup(call, target=target, calendar_state=calendar_state)
+        await call.answer()
+        return
+
+    if action == "show_years":
+        calendar_state.view = CalendarView.YEARS
+        page = callback_data.page
+        if page is not None:
+            calendar_state.year_page = max(1, page)
+        elif calendar_state.year_page is None:
+            _refresh_year_page(calendar_state)
+        await _store_calendar_state(state, target, calendar_state)
+        await _refresh_calendar_markup(call, target=target, calendar_state=calendar_state)
+        await call.answer()
+        return
+
+    if action in {"prev_year", "next_year"}:
+        calendar_state.year = max(1, callback_data.year)
+        _refresh_year_page(calendar_state)
+        calendar_state.view = CalendarView.MONTHS
+        await _store_calendar_state(state, target, calendar_state)
+        await _refresh_calendar_markup(call, target=target, calendar_state=calendar_state)
+        await call.answer()
+        return
+
+    if action == "set_month":
+        calendar_state.month = min(12, max(1, callback_data.month))
+        calendar_state.view = CalendarView.DAYS
+        await _store_calendar_state(state, target, calendar_state)
+        await _refresh_calendar_markup(call, target=target, calendar_state=calendar_state)
+        await call.answer()
+        return
+
+    if action == "back_to_days":
+        calendar_state.view = CalendarView.DAYS
+        await _store_calendar_state(state, target, calendar_state)
+        await _refresh_calendar_markup(call, target=target, calendar_state=calendar_state)
+        await call.answer()
+        return
+
+    if action in {"prev_year_page", "next_year_page"}:
+        page = callback_data.page
+        if page is None:
+            page = (calendar_state.year_page or 1) + (-12 if action == "prev_year_page" else 12)
+        calendar_state.year_page = max(1, page)
+        calendar_state.view = CalendarView.YEARS
+        await _store_calendar_state(state, target, calendar_state)
+        await _refresh_calendar_markup(call, target=target, calendar_state=calendar_state)
+        await call.answer()
+        return
+
+    if action == "set_year":
+        calendar_state.year = max(1, callback_data.year)
+        _refresh_year_page(calendar_state)
+        calendar_state.view = CalendarView.MONTHS
+        await _store_calendar_state(state, target, calendar_state)
+        await _refresh_calendar_markup(call, target=target, calendar_state=calendar_state)
+        await call.answer()
+        return
+
+    if action == "back_to_months":
+        calendar_state.view = CalendarView.MONTHS
+        await _store_calendar_state(state, target, calendar_state)
+        await _refresh_calendar_markup(call, target=target, calendar_state=calendar_state)
+        await call.answer()
+        return
+
+    if action == "set_day":
+        day = callback_data.day
+        if day is None:
+            await call.answer()
+            return
+        try:
+            selected_date = date(calendar_state.year, calendar_state.month, day)
+        except ValueError:
+            await call.answer("Не удалось определить дату.", show_alert=True)
+            return
+        await _store_calendar_state(state, target, calendar_state)
+        formatted = selected_date.strftime("%d.%m.%Y")
+        if target == "start":
+            await _store_selected_date(state, "start", selected_date)
+            await call.message.answer(f"Начальная дата выбрана: {formatted}")
+            end_state = await _get_calendar_state(state, "end")
+            end_state.year = selected_date.year
+            end_state.month = selected_date.month
+            end_state.view = CalendarView.DAYS
+            _refresh_year_page(end_state)
+            await _store_calendar_state(state, "end", end_state)
+            await state.set_state(CuratorStatsSelection.choosing_end)
+            prompt = "Выберите конечную дату периода:"
+            markup = CuratorCalendarKeyboard.build(end_state, target="end")
+            try:
+                await call.message.edit_text(prompt, reply_markup=markup)
+            except Exception:
+                await call.message.answer(prompt, reply_markup=markup)
+            await call.answer()
+            return
+
+        # target == "end"
+        start_date = await _get_selected_date(state, "start")
+        if start_date and selected_date < start_date:
+            await call.answer(
+                "Конечная дата не может быть раньше начальной.",
+                show_alert=True,
+            )
+            return
+        await _store_selected_date(state, "end", selected_date)
+        await call.message.answer(f"Конечная дата выбрана: {formatted}")
+        if start_date is None:
+            start_date = selected_date
+        start_dt = datetime.combine(
+            start_date,
+            time.min.replace(tzinfo=MOSCOW_TZ),
+        ).astimezone(timezone.utc)
+        end_dt = datetime.combine(
+            selected_date + timedelta(days=1),
+            time.min.replace(tzinfo=MOSCOW_TZ),
+        ).astimezone(timezone.utc)
+        svc = CuratorService(call.bot)
+        partners = await svc.list_partners(
+            call.from_user.id,
+            start=start_dt,
+            end=end_dt,
+        )
+        rows = await _collect_curator_stats_rows(svc, call.from_user.id, partners)
+        if not rows:
+            await call.message.answer("В указанном периоде приглашенных пользователей нет.")
+        else:
+            csv_bytes = build_simple_table_csv(_CURATOR_STATS_HEADERS, rows)
+            start_text = start_date.strftime("%d.%m.%Y")
+            end_text = selected_date.strftime("%d.%m.%Y")
+            filename = (
+                f"curator_stats_{call.from_user.id}_{start_date.strftime('%Y%m%d')}"
+                f"_{selected_date.strftime('%Y%m%d')}.csv"
+            )
+            document = BufferedInputFile(csv_bytes, filename=filename)
+            caption = (
+                "Ваша статистика приглашенных пользователей.\n"
+                f"Период: {start_text} — {end_text}."
+            )
+            await call.message.answer_document(document, caption=caption)
+        await state.clear()
+        try:
+            await call.message.edit_text(
+                "Статистика сформирована. Нажмите «Посмотреть свою статистику»,"
+                " чтобы выбрать другой период.",
+            )
+        except Exception:
+            pass
+        await call.answer()
+        return
+
+    await call.answer()
 
 @router.callback_query(F.data.startswith("cur_partners_page:"))
 async def curator_partners_next_page(call: CallbackQuery) -> None:
@@ -348,7 +714,7 @@ async def curator_partners_next_page(call: CallbackQuery) -> None:
         partners,
         offset=offset,
         text=text,
-        keyboard_builder=curator_partners_keyboard,
+        keyboard_builder=CuratorKeyboards.partners,
     )
 
 
@@ -368,7 +734,7 @@ async def curator_message_prompt(call: CallbackQuery) -> None:
         return
     partners = await svc.list_partners(call.from_user.id)
     info = next((p for p in partners if p.get("user_id") == partner_id), None)
-    display_name = format_partner_title(info) if info else f"ID {partner_id}"
+    display_name = CuratorKeyboards.format_partner_title(info) if info else f"ID {partner_id}"
     _pending_curator_messages[call.from_user.id] = partner_id
     prompt = (
         f"Напишите сообщение для {html.escape(display_name)}.\n"
@@ -377,7 +743,7 @@ async def curator_message_prompt(call: CallbackQuery) -> None:
     try:
         await call.message.answer(
             prompt,
-            reply_markup=curator_cancel_message_keyboard(),
+            reply_markup=CuratorKeyboards.cancel_message(),
         )
     except Exception:
         pass
@@ -395,6 +761,22 @@ async def handle_invite(message: Message) -> None:
         username=message.from_user.username,
         full_name=message.from_user.full_name,
     )
+
+
+@router.message(Command('static'))
+async def handle_curator_full_stats(message: Message) -> None:
+    svc = CuratorService(message.bot)
+    if not await svc.is_curator(message.from_user.id):
+        await message.answer("Эта команда доступна только кураторам.")
+        return
+
+    result = await _prepare_curator_all_time_stats(svc, message.from_user.id)
+    if result is None:
+        await message.answer("У вас пока нет приглашенных пользователей.")
+        return
+
+    document, caption = result
+    await message.answer_document(document, caption=caption)
 
 @router.message(CommandStart(deep_link=True))
 async def start_with_payload(message: Message) -> None:
@@ -605,7 +987,7 @@ async def handle_curator_outgoing_message(message: Message) -> None:
     else:
         await message.answer(
             "Сообщение отправлено.",
-            reply_markup=curator_back_to_menu_keyboard(),
+            reply_markup=CuratorKeyboards.back_to_menu(),
         )
     finally:
         _pending_curator_messages.pop(message.from_user.id, None)
