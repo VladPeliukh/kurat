@@ -15,15 +15,12 @@ from aiogram.types import (
 )
 from zoneinfo import ZoneInfo
 
-from ..keyboards import (
-    captcha_options_keyboard,
-    curator_cancel_message_keyboard,
-    curator_back_to_menu_keyboard,
-    curator_invite_keyboard,
-    curator_main_menu_keyboard,
-    curator_partners_keyboard,
-    curator_request_keyboard,
-    format_partner_title,
+from ..keyboards import CaptchaKeyboards, CuratorKeyboards
+from ..keyboards.calendar import (
+    CalendarState,
+    CalendarView,
+    CuratorCalendarCallback,
+    CuratorCalendarKeyboard,
 )
 from ..keyboards.calendar import (
     CalendarState,
@@ -159,7 +156,7 @@ async def _refresh_calendar_markup(
 ) -> None:
     try:
         await call.message.edit_reply_markup(
-            reply_markup=build_calendar_keyboard(calendar_state, target=target)
+            reply_markup=CuratorCalendarKeyboard.build(calendar_state, target=target)
         )
     except Exception:
         pass
@@ -182,7 +179,7 @@ async def _send_curator_personal_link(
     text = f"Ваша персональная ссылка:\n{link}\n\nПриглашено: {count}"
     await target.answer(
         text,
-        reply_markup=curator_invite_keyboard(),
+        reply_markup=CuratorKeyboards.invite(),
         disable_web_page_preview=True,
     )
 
@@ -270,7 +267,7 @@ async def _send_captcha_challenge(message: Message, user_id: int, svc: CuratorSe
     answer, image_bytes = await _captcha_generator.random_captcha()
     options = _build_captcha_options(answer)
     await svc.store_captcha_challenge(user_id, curator_id, answer)
-    keyboard = captcha_options_keyboard(options)
+    keyboard = CaptchaKeyboards.options(options)
     captcha_image = BufferedInputFile(image_bytes, filename="captcha.png")
     await message.answer_photo(
         captcha_image,
@@ -300,7 +297,7 @@ async def _notify_curator(
         source_link=source_link,
         payload=payload,
     )
-    keyboard = curator_request_keyboard(partner_id)
+    keyboard = CuratorKeyboards.request(partner_id)
     safe_name = html.escape(full_name or "")
     try:
         await bot.send_message(
@@ -342,7 +339,7 @@ async def show_curator_menu(message: Message) -> None:
     _pending_curator_messages.pop(message.from_user.id, None)
     await message.answer(
         "МЕНЮ КУРАТОРА",
-        reply_markup=curator_main_menu_keyboard(),
+        reply_markup=CuratorKeyboards.main_menu(),
     )
 
 
@@ -360,7 +357,7 @@ async def curator_menu_open(call: CallbackQuery) -> None:
     try:
         await call.message.answer(
             "МЕНЮ КУРАТОРА",
-            reply_markup=curator_main_menu_keyboard(),
+            reply_markup=CuratorKeyboards.main_menu(),
         )
     except Exception:
         pass
@@ -374,7 +371,7 @@ async def curator_menu_back(call: CallbackQuery) -> None:
         await call.answer("Эта функция доступна только кураторам.", show_alert=True)
         return
     _pending_curator_messages.pop(call.from_user.id, None)
-    keyboard = curator_main_menu_keyboard()
+    keyboard = CuratorKeyboards.main_menu()
     try:
         await call.message.edit_text("МЕНЮ КУРАТОРА", reply_markup=keyboard)
     except Exception:
@@ -401,7 +398,7 @@ async def curator_show_partners(call: CallbackQuery) -> None:
         partners,
         offset=0,
         text=text,
-        keyboard_builder=curator_partners_keyboard,
+        keyboard_builder=CuratorKeyboards.partners,
     )
 
 
@@ -443,7 +440,7 @@ async def curator_show_stats(call: CallbackQuery, state: FSMContext) -> None:
     await _store_selected_date(state, "end", None)
     await _store_calendar_state(state, "end", _initial_calendar_state())
     prompt = "Выберите начальную дату периода:"
-    markup = build_calendar_keyboard(start_state, target="start")
+    markup = CuratorCalendarKeyboard.build(start_state, target="start")
     try:
         await call.message.answer(prompt, reply_markup=markup)
     except Exception:
@@ -591,7 +588,7 @@ async def curator_stats_calendar_action(
             await _store_calendar_state(state, "end", end_state)
             await state.set_state(CuratorStatsSelection.choosing_end)
             prompt = "Выберите конечную дату периода:"
-            markup = build_calendar_keyboard(end_state, target="end")
+            markup = CuratorCalendarKeyboard.build(end_state, target="end")
             try:
                 await call.message.edit_text(prompt, reply_markup=markup)
             except Exception:
@@ -680,7 +677,7 @@ async def curator_partners_next_page(call: CallbackQuery) -> None:
         partners,
         offset=offset,
         text=text,
-        keyboard_builder=curator_partners_keyboard,
+        keyboard_builder=CuratorKeyboards.partners,
     )
 
 
@@ -700,7 +697,7 @@ async def curator_message_prompt(call: CallbackQuery) -> None:
         return
     partners = await svc.list_partners(call.from_user.id)
     info = next((p for p in partners if p.get("user_id") == partner_id), None)
-    display_name = format_partner_title(info) if info else f"ID {partner_id}"
+    display_name = CuratorKeyboards.format_partner_title(info) if info else f"ID {partner_id}"
     _pending_curator_messages[call.from_user.id] = partner_id
     prompt = (
         f"Напишите сообщение для {html.escape(display_name)}.\n"
@@ -709,7 +706,7 @@ async def curator_message_prompt(call: CallbackQuery) -> None:
     try:
         await call.message.answer(
             prompt,
-            reply_markup=curator_cancel_message_keyboard(),
+            reply_markup=CuratorKeyboards.cancel_message(),
         )
     except Exception:
         pass
@@ -937,7 +934,7 @@ async def handle_curator_outgoing_message(message: Message) -> None:
     else:
         await message.answer(
             "Сообщение отправлено.",
-            reply_markup=curator_back_to_menu_keyboard(),
+            reply_markup=CuratorKeyboards.back_to_menu(),
         )
     finally:
         _pending_curator_messages.pop(message.from_user.id, None)
