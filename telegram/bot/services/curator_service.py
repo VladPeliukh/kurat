@@ -247,28 +247,48 @@ class CuratorService:
                         "user_id": uid,
                         "full_name": (partner.get("full_name") or "").strip(),
                         "username": partner.get("username"),
+                        "added_at": partner.get("added_at"),
                     }
                 )
             else:
                 unique.append({"user_id": uid, "full_name": "", "username": None})
         return unique
 
-    async def list_partners(self, curator_id: int) -> list[dict]:
+    async def list_partners(
+        self,
+        curator_id: int,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[dict]:
+        conditions = ["curator_id = $1"]
+        params: list[object] = [curator_id]
+        param_index = 2
+        if start is not None:
+            conditions.append(f"added_at >= ${param_index}")
+            params.append(start)
+            param_index += 1
+        if end is not None:
+            conditions.append(f"added_at < ${param_index}")
+            params.append(end)
+            param_index += 1
+        where_clause = " AND ".join(conditions)
+        query = (
+            """
+            SELECT partner_user_id, full_name, username, added_at
+            FROM curator_partners
+            WHERE {where_clause}
+            ORDER BY added_at DESC
+            """
+        ).format(where_clause=where_clause)
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT partner_user_id, full_name, username
-                FROM curator_partners
-                WHERE curator_id = $1
-                ORDER BY added_at DESC
-                """,
-                curator_id,
-            )
+            rows = await conn.fetch(query, *params)
         partners = [
             {
                 "user_id": row["partner_user_id"],
                 "full_name": (row.get("full_name") or "").strip(),
                 "username": row.get("username"),
+                "added_at": row.get("added_at"),
             }
             for row in rows
         ]
