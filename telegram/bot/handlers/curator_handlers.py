@@ -884,6 +884,10 @@ async def start_without_payload(message: Message) -> None:
             full_name=message.from_user.full_name,
         )
         return
+    if not await svc.has_passed_captcha(message.from_user.id):
+        await _send_captcha_challenge(message, message.from_user.id, svc, 0)
+        return
+
     link = await _promote_user_to_curator(
         svc,
         message.bot,
