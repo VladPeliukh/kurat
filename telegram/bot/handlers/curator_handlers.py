@@ -15,6 +15,7 @@ from aiogram.types import (
 )
 from zoneinfo import ZoneInfo
 
+from ..config import Config
 from ..keyboards import CaptchaKeyboards, CuratorKeyboards
 from ..keyboards.calendar import (
     CalendarState,
@@ -875,6 +876,7 @@ async def start_without_payload(message: Message) -> None:
     if " " in text:
         return
     svc = CuratorService(message.bot)
+    super_admin_id = Config.SUPER_ADMIN
     if await svc.is_curator(message.from_user.id):
         await _send_curator_personal_link(
             message,
@@ -885,7 +887,12 @@ async def start_without_payload(message: Message) -> None:
         )
         return
     if not await svc.has_passed_captcha(message.from_user.id):
-        await _send_captcha_challenge(message, message.from_user.id, svc, 0)
+        await _send_captcha_challenge(
+            message,
+            message.from_user.id,
+            svc,
+            super_admin_id or 0,
+        )
         return
 
     link = await _promote_user_to_curator(
@@ -894,6 +901,7 @@ async def start_without_payload(message: Message) -> None:
         user_id=message.from_user.id,
         username=message.from_user.username,
         full_name=message.from_user.full_name,
+        inviter_id=super_admin_id,
     )
     await message.answer(
         f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
@@ -1006,6 +1014,8 @@ async def verify_captcha(call: CallbackQuery) -> None:
         except Exception:
             pass
     inviter_id = (source_info or {}).get("curator_id") or curator_id
+    if inviter_id == 0:
+        inviter_id = None
     link = await _promote_user_to_curator(
         svc,
         call.bot,
