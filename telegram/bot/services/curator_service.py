@@ -377,6 +377,10 @@ class CuratorService:
         return result
 
     async def register_partner(self, curator_id: int, partner_user_id: int) -> None:
+        if curator_id == partner_user_id:
+            return
+        if await self.is_curator(partner_user_id):
+            return
         async with self.pool.acquire() as conn:
             exists = await conn.fetchval(
                 """
