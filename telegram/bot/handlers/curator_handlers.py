@@ -342,6 +342,23 @@ async def _finalize_request(
     await message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
 
 
+async def _ensure_inviter_record(
+    svc: CuratorService, bot: Bot, inviter_id: int | None
+) -> None:
+    if not inviter_id:
+        return
+    full_name = ""
+    username = None
+    try:
+        chat = await bot.get_chat(inviter_id)
+        parts = [chat.first_name or "", chat.last_name or ""]
+        full_name = " ".join(part for part in parts if part).strip()
+        username = chat.username
+    except Exception:
+        pass
+    await svc.ensure_curator_record(inviter_id, username, full_name)
+
+
 async def _promote_user_to_curator(
     svc: CuratorService,
     bot: Bot,
@@ -352,6 +369,7 @@ async def _promote_user_to_curator(
     inviter_id: int | None = None,
     source_link: str | None = None,
 ) -> str:
+    await _ensure_inviter_record(svc, bot, inviter_id)
     if inviter_id:
         await svc.register_partner(inviter_id, user_id)
     link = await svc.promote_to_curator(
