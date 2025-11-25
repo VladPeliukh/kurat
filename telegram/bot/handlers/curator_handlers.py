@@ -341,6 +341,46 @@ async def _finalize_request(
     await message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
 
 
+async def _promote_user_to_curator(
+    svc: CuratorService,
+    bot: Bot,
+    *,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+    inviter_id: int | None = None,
+    source_link: str | None = None,
+) -> str:
+    if inviter_id:
+        await svc.register_partner(inviter_id, user_id)
+    link = await svc.promote_to_curator(
+        user_id,
+        username,
+        full_name or "",
+        source_link=source_link,
+    )
+    try:
+        await bot.set_my_commands(
+            CURATOR_COMMANDS,
+            scope=BotCommandScopeChat(chat_id=user_id),
+        )
+    except Exception:
+        pass
+    if inviter_id:
+        safe_name = html.escape(full_name or "")
+        try:
+            await bot.send_message(
+                inviter_id,
+                (
+                    "Пользователь по вашей ссылке стал куратором: "
+                    f"<a href='tg://user?id={user_id}'>{safe_name}</a>."
+                ),
+            )
+        except Exception:
+            pass
+    return link
+
+
 @router.message(Command('curator'))
 async def show_curator_menu(message: Message) -> None:
     svc = CuratorService(message.bot)
@@ -800,20 +840,65 @@ async def start_with_payload(message: Message) -> None:
         source_link or clean_payload,
     )
     if await svc.is_curator(message.from_user.id):
-        await message.answer("Вы уже являетесь куратором.")
+        await svc.register_partner(curator_id, message.from_user.id)
+        await _send_curator_personal_link(
+            message,
+            svc,
+            user_id=message.from_user.id,
+            username=message.from_user.username,
+            full_name=message.from_user.full_name,
+        )
         return
     if not await svc.has_passed_captcha(message.from_user.id):
         await _send_captcha_challenge(message, message.from_user.id, svc, curator_id)
         return
 
-    await _finalize_request(
-        message,
+    link = await _promote_user_to_curator(
         svc,
-        curator_id,
+        message.bot,
+        user_id=message.from_user.id,
+        username=message.from_user.username,
+        full_name=message.from_user.full_name,
+        inviter_id=curator_id,
         source_link=source_link,
-        payload=clean_payload,
+    )
+    await message.answer(
+        f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+        disable_web_page_preview=True,
     )
     return
+
+
+@router.message(CommandStart())
+async def start_without_payload(message: Message) -> None:
+    text = message.text or ""
+    if " " in text:
+        return
+    svc = CuratorService(message.bot)
+    if await svc.is_curator(message.from_user.id):
+        await _send_curator_personal_link(
+            message,
+            svc,
+            user_id=message.from_user.id,
+            username=message.from_user.username,
+            full_name=message.from_user.full_name,
+        )
+        return
+    if not await svc.has_passed_captcha(message.from_user.id):
+        await _send_captcha_challenge(message, message.from_user.id, svc, 0)
+        return
+
+    link = await _promote_user_to_curator(
+        svc,
+        message.bot,
+        user_id=message.from_user.id,
+        username=message.from_user.username,
+        full_name=message.from_user.full_name,
+    )
+    await message.answer(
+        f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+        disable_web_page_preview=True,
+    )
 
 
 @router.callback_query(F.data.startswith("cur_req:"))
@@ -836,6 +921,7 @@ async def request_curation(call: CallbackQuery):
     )
     # Создаём заявку и уведомляем куратора
     if await svc.is_curator(call.from_user.id):
+        await svc.register_partner(curator_id, call.from_user.id)
         await call.answer("Вы уже являетесь куратором.", show_alert=True)
         return
     if not await svc.has_passed_captcha(call.from_user.id):
@@ -843,22 +929,27 @@ async def request_curation(call: CallbackQuery):
         await _send_captcha_challenge(call.message, call.from_user.id, svc, curator_id)
         return
 
-    await _notify_curator(
+    link = await _promote_user_to_curator(
         svc,
-        curator_id,
-        call.from_user.id,
-        call.from_user.full_name,
         call.bot,
+        user_id=call.from_user.id,
         username=call.from_user.username,
+        full_name=call.from_user.full_name,
+        inviter_id=curator_id,
         source_link=source_link,
-        payload=code,
     )
-    await call.answer()  # закрыть "часики"
+    await call.answer()
     try:
-        await call.message.edit_text("Заявка отправлена вашему куратору. Ожидайте решения.")
+        await call.message.edit_text(
+            f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+            disable_web_page_preview=True,
+        )
     except Exception:
         try:
-            await call.message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
+            await call.message.answer(
+                f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+                disable_web_page_preview=True,
+            )
         except Exception:
             pass
 
@@ -914,18 +1005,20 @@ async def verify_captcha(call: CallbackQuery) -> None:
             await call.message.answer("✅ Капча успешно пройдена")
         except Exception:
             pass
-
-    await _notify_curator(
+    inviter_id = (source_info or {}).get("curator_id") or curator_id
+    link = await _promote_user_to_curator(
         svc,
-        curator_id,
-        call.from_user.id,
-        call.from_user.full_name,
         call.bot,
+        user_id=call.from_user.id,
         username=call.from_user.username,
+        full_name=call.from_user.full_name,
+        inviter_id=inviter_id,
         source_link=(source_info or {}).get("source_link"),
-        payload=(source_info or {}).get("payload"),
     )
-    await call.message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
+    await call.message.answer(
+        f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+        disable_web_page_preview=True,
+    )
 
 
 @router.callback_query(F.data == "cur_msg:cancel")
