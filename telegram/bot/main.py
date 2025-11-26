@@ -11,6 +11,7 @@ from .config import Config
 from .handlers import register_handlers
 from .services import setup_services, Services
 from .services.curator_service import CuratorService
+from .services.admin_service import AdminService
 from .utils.commands import setup_commands, delete_commands
 from .middlewares import setup_middlewares
 from .utils.loggers import main_bot as logger
@@ -74,6 +75,8 @@ async def main():
     bot = Bot(token=Config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
     pool = await create_pool()
+    AdminService.configure(pool)
+    await AdminService.init_storage()
     CuratorService.configure(pool)
     await CuratorService.init_storage()
 

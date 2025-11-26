@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from ..config import Config
 from ..keyboards import CaptchaKeyboards, CuratorKeyboards
+from ..services.admin_service import AdminService
 from ..keyboards.calendar import (
     CalendarState,
     CalendarView,
@@ -24,10 +25,15 @@ from ..keyboards.calendar import (
     CuratorCalendarKeyboard,
 )
 from ..services.curator_service import CuratorService
+from ..utils.curator_stats import (
+    CURATOR_STATS_HEADERS,
+    collect_curator_stats_rows,
+    prepare_curator_all_time_stats,
+)
 from ..utils.captcha import NumberCaptcha
+from ..utils.csv_export import build_simple_table_csv
 from ..utils.commands import CURATOR_COMMANDS
 from ..utils.helpers import build_deeplink
-from ..utils.csv_export import build_simple_table_csv
 from ..states.curator_states import CuratorStatsSelection
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
@@ -36,14 +42,33 @@ router = Router()
 _captcha_generator = NumberCaptcha()
 _pending_curator_messages: dict[int, int] = {}
 _CURATOR_PARTNERS_PAGE_SIZE = 10
-_CURATOR_STATS_HEADERS = [
-    "ID",
-    "Имя",
-    "Username",
-    "Ссылка приглашения",
-    "Персональная ссылка",
-    "Дата и время назначения",
-]
+
+
+async def _is_admin(user_id: int) -> bool:
+    admin_service = AdminService()
+    return await admin_service.is_admin(user_id)
+
+
+async def _has_curator_access(bot: Bot, user_id: int, svc: CuratorService | None = None) -> bool:
+    if await _is_admin(user_id):
+        return True
+    if svc is not None:
+        return await svc.is_curator(user_id)
+    return await CuratorService(bot).is_curator(user_id)
+
+
+async def _require_curator_or_admin_message(message: Message, svc: CuratorService) -> bool:
+    if await _has_curator_access(message.bot, message.from_user.id, svc):
+        return True
+    await message.answer("Эта команда доступна только кураторам и администраторам.")
+    return False
+
+
+async def _require_curator_or_admin_callback(call: CallbackQuery, svc: CuratorService) -> bool:
+    if await _has_curator_access(call.bot, call.from_user.id, svc):
+        return True
+    await call.answer("Эта функция доступна только кураторам и администраторам.", show_alert=True)
+    return False
 
 
 def _initial_calendar_state(reference: date | None = None) -> CalendarState:
@@ -177,70 +202,6 @@ async def _send_curator_personal_link(
         reply_markup=CuratorKeyboards.invite(),
         disable_web_page_preview=True,
     )
-
-
-async def _collect_curator_stats_rows(
-    svc: CuratorService,
-    curator_id: int,
-    partners: list[dict],
-) -> list[list[str | int]]:
-    rows: list[list[str | int]] = []
-    for partner in partners:
-        partner_id = partner.get("user_id")
-        if not partner_id:
-            continue
-        stats = await svc.get_partner_statistics(curator_id, partner_id)
-        if not stats:
-            stats = {
-                "user_id": partner_id,
-                "full_name": partner.get("full_name") or "",
-                "username": partner.get("username"),
-                "source_link": None,
-                "invite_link": None,
-                "promoted_at": None,
-            }
-        username = stats.get("username") or partner.get("username") or ""
-        if username and not str(username).startswith("@"):
-            username = f"@{username}"
-        promoted_at = stats.get("promoted_at")
-        promoted_text = ""
-        if promoted_at:
-            try:
-                dt = datetime.fromisoformat(str(promoted_at))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                dt = dt.astimezone(MOSCOW_TZ)
-                promoted_text = dt.strftime("%d.%m.%Y %H:%M:%S")
-            except Exception:
-                promoted_text = str(promoted_at)
-        rows.append(
-            [
-                stats.get("user_id") or partner_id,
-                stats.get("full_name") or partner.get("full_name") or "",
-                username,
-                stats.get("source_link") or "",
-                stats.get("invite_link") or "",
-                promoted_text,
-            ]
-        )
-    return rows
-
-
-async def _prepare_curator_all_time_stats(
-    svc: CuratorService,
-    curator_id: int,
-) -> tuple[BufferedInputFile, str] | None:
-    partners = await svc.list_partners(curator_id)
-    if not partners:
-        return None
-    rows = await _collect_curator_stats_rows(svc, curator_id, partners)
-    if not rows:
-        return None
-    csv_bytes = build_simple_table_csv(_CURATOR_STATS_HEADERS, rows)
-    filename = f"curator_stats_{curator_id}_all_time.csv"
-    document = BufferedInputFile(csv_bytes, filename=filename)
-    caption = "Ваша статистика приглашенных пользователей за всё время."
-    return document, caption
 
 
 def _build_captcha_options(correct_answer: int, total: int = 9) -> list[int]:
@@ -403,8 +364,7 @@ async def _promote_user_to_curator(
 @router.message(Command('curator'))
 async def show_curator_menu(message: Message) -> None:
     svc = CuratorService(message.bot)
-    if not await svc.is_curator(message.from_user.id):
-        await message.answer("Эта команда доступна только кураторам.")
+    if not await _require_curator_or_admin_message(message, svc):
         return
     _pending_curator_messages.pop(message.from_user.id, None)
     await message.answer(
@@ -416,8 +376,7 @@ async def show_curator_menu(message: Message) -> None:
 @router.callback_query(F.data == "cur_menu:open")
 async def curator_menu_open(call: CallbackQuery) -> None:
     svc = CuratorService(call.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+    if not await _require_curator_or_admin_callback(call, svc):
         return
     _pending_curator_messages.pop(call.from_user.id, None)
     try:
@@ -437,8 +396,7 @@ async def curator_menu_open(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "cur_menu:back")
 async def curator_menu_back(call: CallbackQuery) -> None:
     svc = CuratorService(call.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+    if not await _require_curator_or_admin_callback(call, svc):
         return
     _pending_curator_messages.pop(call.from_user.id, None)
     keyboard = CuratorKeyboards.main_menu()
@@ -452,8 +410,7 @@ async def curator_menu_back(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "cur_menu:partners")
 async def curator_show_partners(call: CallbackQuery) -> None:
     svc = CuratorService(call.message.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+    if not await _require_curator_or_admin_callback(call, svc):
         return
     partners = await svc.list_partners(call.from_user.id)
     if not partners:
@@ -475,8 +432,7 @@ async def curator_show_partners(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "cur_menu:invite")
 async def curator_show_invite(call: CallbackQuery) -> None:
     svc = CuratorService(call.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+    if not await _require_curator_or_admin_callback(call, svc):
         return
     if call.message is None:
         await call.answer("Не удалось отправить ссылку.", show_alert=True)
@@ -495,8 +451,7 @@ async def curator_show_invite(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "cur_menu:stats")
 async def curator_show_stats(call: CallbackQuery, state: FSMContext) -> None:
     svc = CuratorService(call.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+    if not await _require_curator_or_admin_callback(call, svc):
         return
     total_partners = await svc.partners_count(call.from_user.id)
     if total_partners == 0:
@@ -529,10 +484,9 @@ async def curator_show_stats(call: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "cur_menu:stats_all")
 async def curator_show_all_time_stats(call: CallbackQuery) -> None:
     svc = CuratorService(call.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+    if not await _require_curator_or_admin_callback(call, svc):
         return
-    result = await _prepare_curator_all_time_stats(svc, call.from_user.id)
+    result = await prepare_curator_all_time_stats(svc, call.from_user.id)
     if result is None:
         await call.answer("У вас пока нет приглашенных пользователей.", show_alert=True)
         return
@@ -718,7 +672,7 @@ async def curator_stats_calendar_action(
             start=start_dt,
             end=end_dt,
         )
-        rows = await _collect_curator_stats_rows(svc, call.from_user.id, partners)
+        rows = await collect_curator_stats_rows(svc, call.from_user.id, partners)
         if not rows:
             await call.message.answer("В указанном периоде приглашенных пользователей нет.")
         else:
@@ -751,8 +705,7 @@ async def curator_stats_calendar_action(
 @router.callback_query(F.data.startswith("cur_partners_page:"))
 async def curator_partners_next_page(call: CallbackQuery) -> None:
     svc = CuratorService(call.message.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+    if not await _require_curator_or_admin_callback(call, svc):
         return
     try:
         offset = int(call.data.split(":", 1)[1])
@@ -780,8 +733,7 @@ async def curator_partners_next_page(call: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("cur_partner:"))
 async def curator_message_prompt(call: CallbackQuery) -> None:
     svc = CuratorService(call.message.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+    if not await _require_curator_or_admin_callback(call, svc):
         return
     try:
         partner_id = int(call.data.split(":", 1)[1])
@@ -810,8 +762,7 @@ async def curator_message_prompt(call: CallbackQuery) -> None:
 @router.message(Command('invite'))
 async def handle_invite(message: Message) -> None:
     svc = CuratorService(message.bot)
-    if not await svc.is_curator(message.from_user.id):
-        await message.answer("Эта команда доступна только кураторам.")
+    if not await _require_curator_or_admin_message(message, svc):
         return
     await _send_curator_personal_link(
         message,
@@ -825,11 +776,10 @@ async def handle_invite(message: Message) -> None:
 @router.message(Command('static'))
 async def handle_curator_full_stats(message: Message) -> None:
     svc = CuratorService(message.bot)
-    if not await svc.is_curator(message.from_user.id):
-        await message.answer("Эта команда доступна только кураторам.")
+    if not await _require_curator_or_admin_message(message, svc):
         return
 
-    result = await _prepare_curator_all_time_stats(svc, message.from_user.id)
+    result = await prepare_curator_all_time_stats(svc, message.from_user.id)
     if result is None:
         await message.answer("У вас пока нет приглашенных пользователей.")
         return
@@ -843,6 +793,7 @@ async def start_with_payload(message: Message) -> None:
     if not payload:
         return
     svc = CuratorService(message.bot)
+    is_admin = await _is_admin(message.from_user.id)
     clean_payload = payload.strip()
     curator_id = await svc.find_curator_by_code(clean_payload)
     if not curator_id:
@@ -866,6 +817,21 @@ async def start_with_payload(message: Message) -> None:
             user_id=message.from_user.id,
             username=message.from_user.username,
             full_name=message.from_user.full_name,
+        )
+        return
+    if is_admin:
+        link = await _promote_user_to_curator(
+            svc,
+            message.bot,
+            user_id=message.from_user.id,
+            username=message.from_user.username,
+            full_name=message.from_user.full_name,
+            inviter_id=curator_id,
+            source_link=source_link,
+        )
+        await message.answer(
+            f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+            disable_web_page_preview=True,
         )
         return
     if not await svc.has_passed_captcha(message.from_user.id):
@@ -894,6 +860,7 @@ async def start_without_payload(message: Message) -> None:
     if " " in text:
         return
     svc = CuratorService(message.bot)
+    is_admin = await _is_admin(message.from_user.id)
     if await svc.is_curator(message.from_user.id):
         await _send_curator_personal_link(
             message,
@@ -901,6 +868,20 @@ async def start_without_payload(message: Message) -> None:
             user_id=message.from_user.id,
             username=message.from_user.username,
             full_name=message.from_user.full_name,
+        )
+        return
+    if is_admin:
+        link = await _promote_user_to_curator(
+            svc,
+            message.bot,
+            user_id=message.from_user.id,
+            username=message.from_user.username,
+            full_name=message.from_user.full_name,
+            inviter_id=None,
+        )
+        await message.answer(
+            f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+            disable_web_page_preview=True,
         )
         return
     if not await svc.has_passed_captcha(message.from_user.id):
@@ -944,8 +925,27 @@ async def request_curation(call: CallbackQuery):
         code,
         source_link or code,
     )
+    is_curator = await svc.is_curator(call.from_user.id)
+    is_admin = await _is_admin(call.from_user.id)
     # Создаём заявку и уведомляем куратора
-    if await svc.is_curator(call.from_user.id):
+    if is_curator or is_admin:
+        if not is_curator:
+            link = await _promote_user_to_curator(
+                svc,
+                call.bot,
+                user_id=call.from_user.id,
+                username=call.from_user.username,
+                full_name=call.from_user.full_name,
+                inviter_id=curator_id,
+                source_link=source_link,
+            )
+            try:
+                await call.message.answer(
+                    f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+                    disable_web_page_preview=True,
+                )
+            except Exception:
+                pass
         await svc.register_partner(curator_id, call.from_user.id)
         await call.answer("Вы уже являетесь куратором.", show_alert=True)
         return
@@ -1051,8 +1051,7 @@ async def verify_captcha(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "cur_msg:cancel")
 async def cancel_curator_message(call: CallbackQuery) -> None:
     svc = CuratorService(call.bot)
-    if not await svc.is_curator(call.from_user.id):
-        await call.answer("Эта функция доступна только кураторам.", show_alert=True)
+    if not await _require_curator_or_admin_callback(call, svc):
         return
     active = _pending_curator_messages.pop(call.from_user.id, None)
     if call.message:
