@@ -20,6 +20,16 @@ CURATOR_STATS_HEADERS = [
 
 CURATOR_INFO_HEADERS = CURATOR_STATS_HEADERS + ["Пригласил"]
 
+ALL_CURATORS_HEADERS = [
+    "ID",
+    "Username",
+    "Имя",
+    "Пригласил",
+    "Персональная ссылка",
+    "Ссылка источника",
+    "Дата и время назначения",
+]
+
 
 def _format_promoted_at(promoted_at: str | None) -> str:
     if not promoted_at:
@@ -133,5 +143,57 @@ async def prepare_curator_info_report(
     name_label = record.get("full_name") or f"ID {curator_id}"
     caption_label = owner_label or "Информация о кураторе"
     caption = f"{caption_label} {name_label}."
+    return document, caption
+
+
+async def prepare_all_curators_snapshot(
+    svc: CuratorService,
+) -> tuple[BufferedInputFile, str] | None:
+    curators = await svc.list_all_curators()
+    if not curators:
+        return None
+
+    rows: list[list[str | int]] = []
+    for curator in curators:
+        curator_id = curator.get("user_id")
+        if curator_id is None:
+            continue
+
+        username = curator.get("username") or ""
+        if username and not str(username).startswith("@"):
+            username = f"@{username}"
+
+        inviter_display = ""
+        inviter = await svc.get_curator_inviter(curator_id)
+        if inviter:
+            inviter_username = inviter.get("username") or ""
+            if inviter_username and not str(inviter_username).startswith("@"):
+                inviter_username = f"@{inviter_username}"
+            inviter_parts = [inviter.get("full_name") or "", inviter_username]
+            inviter_display = " | ".join(part for part in inviter_parts if part)
+            inviter_id = inviter.get("user_id")
+            if inviter_id:
+                inviter_display = (
+                    f"{inviter_display} (ID {inviter_id})"
+                    if inviter_display
+                    else f"ID {inviter_id}"
+                )
+
+        rows.append(
+            [
+                curator_id,
+                username,
+                curator.get("full_name") or "",
+                inviter_display,
+                curator.get("invite_link") or "",
+                curator.get("source_link") or "",
+                _format_promoted_at(curator.get("promoted_at")),
+            ]
+        )
+
+    csv_bytes = build_simple_table_csv(ALL_CURATORS_HEADERS, rows)
+    filename = "curators_snapshot.csv"
+    document = BufferedInputFile(csv_bytes, filename=filename)
+    caption = "Сводка всех кураторов."
     return document, caption
 
