@@ -12,6 +12,10 @@ class AdminKeyboards:
             text="Посмотреть статистику куратора",
             callback_data="adm_menu:curator_stats",
         )
+        builder.button(
+            text="Информация о кураторе",
+            callback_data="adm_menu:curator_info",
+        )
         builder.adjust(1)
         return builder.as_markup()
 
