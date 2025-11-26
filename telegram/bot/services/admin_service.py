@@ -94,6 +94,37 @@ class AdminService:
             )
         return bool(exists)
 
+    async def is_super_admin(self, user_id: int) -> bool:
+        if Config.SUPER_ADMIN and user_id == Config.SUPER_ADMIN:
+            return True
+        async with self.pool.acquire() as conn:
+            level = await conn.fetchval(
+                "SELECT level FROM admins WHERE user_id = $1",
+                user_id,
+            )
+        return (level or 1) >= 2
+
+    async def add_admin(
+        self, user_id: int, username: str | None, full_name: str | None, level: int = 1
+    ) -> bool:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO admins (user_id, username, full_name, level)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (user_id) DO UPDATE
+                SET username = COALESCE(EXCLUDED.username, admins.username),
+                    full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), admins.full_name),
+                    level = EXCLUDED.level
+                RETURNING (xmax = 0) AS inserted
+                """,
+                user_id,
+                username,
+                full_name or "",
+                level,
+            )
+        return bool(row and row.get("inserted"))
+
     async def get_admin(self, user_id: int) -> Admin | None:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(

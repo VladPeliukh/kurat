@@ -1,3 +1,4 @@
+import asyncio
 from functools import partial
 
 import asyncpg
@@ -15,6 +16,34 @@ from .services.admin_service import AdminService
 from .utils.commands import setup_commands, delete_commands
 from .middlewares import setup_middlewares
 from .utils.loggers import main_bot as logger
+from .utils.curator_stats import prepare_all_curators_snapshot
+
+
+async def super_admin_report_worker(bot: Bot, services: Services) -> None:
+    try:
+        while True:
+            try:
+                await send_curators_snapshot(bot, services)
+                await asyncio.sleep(24 * 60 * 60)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # pragma: no cover - best effort logging
+                logger.exception("Failed to send daily curator snapshot: %s", exc)
+                await asyncio.sleep(60 * 60)
+    except asyncio.CancelledError:
+        return
+
+
+async def send_curators_snapshot(bot: Bot, services: Services) -> None:
+    if not Config.SUPER_ADMIN:
+        return
+
+    snapshot = await prepare_all_curators_snapshot(services.curator)
+    if snapshot is None:
+        return
+
+    document, caption = snapshot
+    await bot.send_document(Config.SUPER_ADMIN, document=document, caption=caption)
 
 
 async def start_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
@@ -38,9 +67,15 @@ async def start_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
 
         for admin in super_admins:
             try:
-                await bot.send_message(admin, text="🚀 Бот Запущен 🚀")
+                await bot.send_message(admin.user_id, text="🚀 Бот Запущен 🚀")
             except (TelegramNotFound, TelegramBadRequest):
                 pass
+
+        if Config.SUPER_ADMIN:
+            task = asyncio.create_task(
+                super_admin_report_worker(bot, services), name="super_admin_daily_report"
+            )
+            dp["background_tasks"] = [task]
 
     except Exception as e:
         logger.exception(e)
@@ -49,11 +84,15 @@ async def start_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
 async def shutdown_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
     services: Services = dp["services"]
 
+    for task in dp.get("background_tasks", []):
+        task.cancel()
+    await asyncio.gather(*dp.get("background_tasks", []), return_exceptions=True)
+
     _, super_admins = await services.admin.list_admins()
 
     for admin in super_admins:
         try:
-            await bot.send_message(admin, text="🛑 Бот Остановлен 🛑")
+            await bot.send_message(admin.user_id, text="🛑 Бот Остановлен 🛑")
         except TelegramNotFound:
             pass
 

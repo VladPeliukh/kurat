@@ -137,6 +137,35 @@ class CuratorService:
             )
         return [row.get("user_id") for row in rows if row and row.get("user_id") is not None]
 
+    async def list_all_curators(self) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT user_id, username, full_name, invite_link, source_link, promoted_at
+                FROM curators
+                ORDER BY created_at ASC
+                """
+            )
+
+        curators: list[dict] = []
+        for row in rows:
+            promoted = row.get("promoted_at")
+            promoted_value = (
+                promoted.isoformat() if isinstance(promoted, datetime) else promoted
+            )
+            curators.append(
+                {
+                    "user_id": row.get("user_id"),
+                    "username": row.get("username"),
+                    "full_name": row.get("full_name") or "",
+                    "invite_link": row.get("invite_link"),
+                    "source_link": row.get("source_link"),
+                    "promoted_at": promoted_value,
+                }
+            )
+
+        return curators
+
     async def ensure_curator_record(
         self,
         user_id: int,
@@ -530,6 +559,29 @@ class CuratorService:
             "invite_link": row.get("invite_link"),
             "source_link": row.get("source_link"),
             "promoted_at": row["promoted_at"].isoformat() if row.get("promoted_at") else None,
+        }
+
+    async def get_curator_inviter(self, user_id: int) -> Optional[dict]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT curator_id, full_name, username
+                FROM curator_partners
+                WHERE partner_user_id = $1
+                ORDER BY added_at ASC
+                LIMIT 1
+                """,
+                user_id,
+            )
+        if row is None:
+            return None
+
+        inviter_id = int(row["curator_id"])
+        inviter_record = await self.get_curator_record(inviter_id) or {}
+        return {
+            "user_id": inviter_id,
+            "full_name": inviter_record.get("full_name") or row.get("full_name"),
+            "username": inviter_record.get("username") or row.get("username"),
         }
 
     async def get_partner_statistics(
