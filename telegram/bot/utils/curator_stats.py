@@ -18,6 +18,21 @@ CURATOR_STATS_HEADERS = [
     "Дата и время назначения",
 ]
 
+CURATOR_INFO_HEADERS = CURATOR_STATS_HEADERS + ["Пригласил"]
+
+
+def _format_promoted_at(promoted_at: str | None) -> str:
+    if not promoted_at:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(promoted_at))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(MOSCOW_TZ)
+        return dt.strftime("%d.%m.%Y %H:%M:%S")
+    except Exception:
+        return str(promoted_at)
+
 
 def _format_promoted_at(promoted_at: str | None) -> str:
     if not promoted_at:
@@ -102,6 +117,17 @@ async def prepare_curator_info_report(
         username = f"@{username}"
 
     promoted_text = _format_promoted_at(record.get("promoted_at"))
+    inviter = await svc.get_curator_inviter(curator_id)
+    inviter_display = ""
+    if inviter:
+        inviter_username = inviter.get("username") or ""
+        if inviter_username and not str(inviter_username).startswith("@"):
+            inviter_username = f"@{inviter_username}"
+        inviter_parts = [part for part in [inviter.get("full_name") or "", inviter_username] if part]
+        inviter_display = " | ".join(inviter_parts)
+        inviter_id = inviter.get("user_id")
+        if inviter_id:
+            inviter_display = f"{inviter_display} (ID {inviter_id})" if inviter_display else f"ID {inviter_id}"
     rows = [
         [
             record.get("user_id") or curator_id,
@@ -110,10 +136,11 @@ async def prepare_curator_info_report(
             record.get("source_link") or "",
             record.get("invite_link") or "",
             promoted_text,
+            inviter_display,
         ]
     ]
 
-    csv_bytes = build_simple_table_csv(CURATOR_STATS_HEADERS, rows)
+    csv_bytes = build_simple_table_csv(CURATOR_INFO_HEADERS, rows)
     filename = f"curator_info_{curator_id}.csv"
     document = BufferedInputFile(csv_bytes, filename=filename)
     name_label = record.get("full_name") or f"ID {curator_id}"
