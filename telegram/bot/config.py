@@ -1,15 +1,23 @@
 import os
 from datetime import timedelta, timezone
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover - fallback if dependency is missing
+    def load_dotenv(_path: str | None = None) -> bool:
+        """Lightweight fallback that simply returns False when python-dotenv is absent."""
+
+        return False
 
 
 load_dotenv()
 
 class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN")
-    DEVELOPERS_IDS = list(
-        map(int, os.getenv("DEVELOPERS_IDS").replace(" ", "").split(","))
+
+    _developers_raw = (os.getenv("DEVELOPERS_IDS") or "").replace(" ", "")
+    DEVELOPERS_IDS = (
+        list(map(int, filter(None, _developers_raw.split(",")))) if _developers_raw else []
     )
 
     # Database
@@ -17,9 +25,11 @@ class Config:
     DB_USER = os.getenv("DB_USER")
     DB_PASS = os.getenv("DB_PASS")
     DB_HOST = os.getenv("DB_HOST")
-    DB_PORT = int(os.getenv("DB_PORT"))
+    _db_port_raw = os.getenv("DB_PORT")
+    DB_PORT = int(_db_port_raw) if _db_port_raw and _db_port_raw.isdigit() else None
 
-    TZ = timezone(timedelta(hours=int(os.getenv("TIME_ZONE"))))
+    _time_zone_raw = os.getenv("TIME_ZONE")
+    TZ = timezone(timedelta(hours=int(_time_zone_raw))) if _time_zone_raw else timezone.utc
 
     _SUPER_ADMIN_RAW = os.getenv("SUPER_ADMIN")
     try:
