@@ -34,19 +34,6 @@ def _format_promoted_at(promoted_at: str | None) -> str:
         return str(promoted_at)
 
 
-def _format_promoted_at(promoted_at: str | None) -> str:
-    if not promoted_at:
-        return ""
-    try:
-        dt = datetime.fromisoformat(str(promoted_at))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        dt = dt.astimezone(MOSCOW_TZ)
-        return dt.strftime("%d.%m.%Y %H:%M:%S")
-    except Exception:
-        return str(promoted_at)
-
-
 async def collect_curator_stats_rows(
     svc: CuratorService,
     curator_id: int,

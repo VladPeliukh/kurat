@@ -676,7 +676,7 @@ async def curator_stats_calendar_action(
         if not rows:
             await call.message.answer("В указанном периоде приглашенных пользователей нет.")
         else:
-            csv_bytes = build_simple_table_csv(_CURATOR_STATS_HEADERS, rows)
+            csv_bytes = build_simple_table_csv(CURATOR_STATS_HEADERS, rows)
             start_text = start_date.strftime("%d.%m.%Y")
             end_text = selected_date.strftime("%d.%m.%Y")
             filename = (
