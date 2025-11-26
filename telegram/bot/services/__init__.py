@@ -8,7 +8,7 @@ from .curator_service import CuratorService
 class Services:
     """Контейнер для всех сервисов"""
 
-def __init__(self, bot: Bot, pool: asyncpg.Pool):
+    def __init__(self, bot: Bot, pool: asyncpg.Pool):
         self.admin = AdminService()
         self.curator = CuratorService(bot)
         self.pool = pool
