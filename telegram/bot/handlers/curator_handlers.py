@@ -894,7 +894,6 @@ async def start_without_payload(message: Message) -> None:
     if " " in text:
         return
     svc = CuratorService(message.bot)
-    super_admin_id = Config.SUPER_ADMIN
     if await svc.is_curator(message.from_user.id):
         await _send_curator_personal_link(
             message,
@@ -909,7 +908,7 @@ async def start_without_payload(message: Message) -> None:
             message,
             message.from_user.id,
             svc,
-            super_admin_id or 0,
+            0,
         )
         return
 
@@ -919,7 +918,7 @@ async def start_without_payload(message: Message) -> None:
         user_id=message.from_user.id,
         username=message.from_user.username,
         full_name=message.from_user.full_name,
-        inviter_id=super_admin_id,
+        inviter_id=None,
     )
     await message.answer(
         f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
