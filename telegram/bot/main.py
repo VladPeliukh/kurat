@@ -38,7 +38,7 @@ async def start_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
 
         for admin in super_admins:
             try:
-                await bot.send_message(admin, text="🚀 Бот Запущен 🚀")
+                await bot.send_message(admin.user_id, text="🚀 Бот Запущен 🚀")
             except (TelegramNotFound, TelegramBadRequest):
                 pass
 
@@ -53,7 +53,7 @@ async def shutdown_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
 
     for admin in super_admins:
         try:
-            await bot.send_message(admin, text="🛑 Бот Остановлен 🛑")
+            await bot.send_message(admin.user_id, text="🛑 Бот Остановлен 🛑")
         except TelegramNotFound:
             pass
 
