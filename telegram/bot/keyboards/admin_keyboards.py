@@ -8,16 +8,13 @@ class AdminKeyboards:
     @staticmethod
     def main_menu() -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
-        builder.button(text="Ваша ссылка", callback_data="cur_menu:invite")
-        builder.button(text="Приглашенные пользователи", callback_data="cur_menu:partners")
-        builder.button(text="Посмотреть свою статистику", callback_data="cur_menu:stats")
-        builder.button(
-            text="Посмотреть статистику за все время",
-            callback_data="cur_menu:stats_all",
-        )
         builder.button(
             text="Посмотреть статистику куратора",
             callback_data="adm_menu:curator_stats",
+        )
+        builder.button(
+            text="Информация о кураторе",
+            callback_data="adm_menu:curator_info",
         )
         builder.adjust(1)
         return builder.as_markup()

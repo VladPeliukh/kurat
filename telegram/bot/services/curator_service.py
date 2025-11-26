@@ -532,6 +532,29 @@ class CuratorService:
             "promoted_at": row["promoted_at"].isoformat() if row.get("promoted_at") else None,
         }
 
+    async def get_curator_inviter(self, user_id: int) -> Optional[dict]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT curator_id, full_name, username
+                FROM curator_partners
+                WHERE partner_user_id = $1
+                ORDER BY added_at ASC
+                LIMIT 1
+                """,
+                user_id,
+            )
+        if row is None:
+            return None
+
+        inviter_id = int(row["curator_id"])
+        inviter_record = await self.get_curator_record(inviter_id) or {}
+        return {
+            "user_id": inviter_id,
+            "full_name": inviter_record.get("full_name") or row.get("full_name"),
+            "username": inviter_record.get("username") or row.get("username"),
+        }
+
     async def get_partner_statistics(
         self,
         curator_id: int,
