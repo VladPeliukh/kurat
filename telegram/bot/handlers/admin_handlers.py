@@ -6,8 +6,8 @@ from aiogram.types import CallbackQuery, Message
 from ..keyboards import AdminKeyboards
 from ..services.admin_service import AdminService
 from ..services.curator_service import CuratorService
-from ..states.admin_states import AdminCuratorStats
-from ..utils.curator_stats import prepare_curator_all_time_stats
+from ..states.admin_states import AdminCuratorInfo, AdminCuratorStats
+from ..utils.curator_stats import prepare_curator_all_time_stats, prepare_curator_info_report
 
 
 router = Router()
@@ -59,6 +59,19 @@ async def prompt_curator_stats(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
+@router.callback_query(F.data == "adm_menu:curator_info")
+async def prompt_curator_info(call: CallbackQuery, state: FSMContext) -> None:
+    if not await _is_admin(call.from_user.id):
+        await call.answer("Эта функция доступна только администраторам.", show_alert=True)
+        return
+    await state.set_state(AdminCuratorInfo.waiting_curator_id)
+    await call.message.answer(
+        "Введите ID куратора, информацию о котором хотите получить.",
+        reply_markup=AdminKeyboards.back_to_admin_menu(),
+    )
+    await call.answer()
+
+
 @router.message(AdminCuratorStats.waiting_curator_id)
 async def send_curator_stats(message: Message, state: FSMContext) -> None:
     if not await _is_admin(message.from_user.id):
@@ -85,6 +98,36 @@ async def send_curator_stats(message: Message, state: FSMContext) -> None:
     result = await prepare_curator_all_time_stats(svc, curator_id, owner_label=owner_label)
     if result is None:
         await message.answer("У этого куратора пока нет приглашенных пользователей.", reply_markup=AdminKeyboards.back_to_admin_menu())
+        await state.clear()
+        return
+
+    document, caption = result
+    await message.answer_document(document, caption=caption, reply_markup=AdminKeyboards.back_to_admin_menu())
+    await state.clear()
+
+
+@router.message(AdminCuratorInfo.waiting_curator_id)
+async def send_curator_info(message: Message, state: FSMContext) -> None:
+    if not await _is_admin(message.from_user.id):
+        await message.answer("Эта функция доступна только администраторам.")
+        await state.clear()
+        return
+
+    try:
+        curator_id = int(message.text.strip())
+    except (TypeError, ValueError):
+        await message.answer("Пожалуйста, отправьте корректный числовой ID куратора.")
+        return
+
+    svc = CuratorService(message.bot)
+    if not await svc.is_curator(curator_id):
+        await message.answer("Куратор с таким ID не найден.", reply_markup=AdminKeyboards.back_to_admin_menu())
+        await state.clear()
+        return
+
+    result = await prepare_curator_info_report(svc, curator_id)
+    if result is None:
+        await message.answer("Не удалось найти данные по этому куратору.", reply_markup=AdminKeyboards.back_to_admin_menu())
         await state.clear()
         return
 
