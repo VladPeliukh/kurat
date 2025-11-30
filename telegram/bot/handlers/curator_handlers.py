@@ -357,8 +357,46 @@ async def _promote_user_to_curator(
                 ),
             )
         except Exception:
-            pass
+        pass
     return link
+
+
+@router.message(F.text.func(lambda text: text and text.strip().lower() == "стать куратором"))
+async def promote_by_message(message: Message) -> None:
+    if message.chat.type in {"group", "supergroup"}:
+        if Config.PRIMARY_GROUP_ID and message.chat.id != Config.PRIMARY_GROUP_ID:
+            return
+
+    svc = CuratorService(message.bot)
+
+    if not await svc.is_open_invite_enabled():
+        await message.answer("Автоматическое приглашение сейчас отключено супер-администратором.")
+        return
+
+    if await svc.is_curator(message.from_user.id):
+        await message.answer("Вы уже являетесь куратором.")
+        return
+
+    inviter_id = Config.SUPER_ADMIN
+    if inviter_id is None:
+        await message.answer("Функция временно недоступна: не задан супер-администратор.")
+        return
+
+    link = await _promote_user_to_curator(
+        svc,
+        message.bot,
+        user_id=message.from_user.id,
+        username=message.from_user.username,
+        full_name=message.from_user.full_name,
+        inviter_id=inviter_id,
+        source_link="super_admin_invite",
+    )
+
+    await message.answer(
+        f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+        disable_web_page_preview=True,
+        reply_markup=CuratorKeyboards.invite(),
+    )
 
 
 @router.message(Command('curator'))
