@@ -36,3 +36,17 @@ class AdminKeyboards:
             ]
         )
 
+    @staticmethod
+    def curator_info_actions(curator_id: int) -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        builder.button(
+            text="Посмотреть статистику этого куратора",
+            callback_data=f"adm_curator_stats:{curator_id}",
+        )
+        builder.button(
+            text="В меню администратора",
+            callback_data="adm_menu:open",
+        )
+        builder.adjust(1)
+        return builder.as_markup()
+

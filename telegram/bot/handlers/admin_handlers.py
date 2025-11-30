@@ -172,9 +172,52 @@ async def send_curator_info(message: Message, state: FSMContext) -> None:
         await state.clear()
         return
 
-    document, caption = result
-    await message.answer_document(document, caption=caption, reply_markup=AdminKeyboards.back_to_admin_menu())
+    await message.answer(
+        result,
+        reply_markup=AdminKeyboards.curator_info_actions(curator_id),
+        disable_web_page_preview=True,
+    )
     await state.clear()
+
+
+@router.callback_query(F.data.startswith("adm_curator_stats:"))
+async def send_curator_stats_from_info(call: CallbackQuery) -> None:
+    if not await _is_admin(call.from_user.id):
+        await call.answer("Эта функция доступна только администраторам.", show_alert=True)
+        return
+
+    try:
+        curator_id = int(call.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await call.answer("Не удалось определить куратора.", show_alert=True)
+        return
+
+    svc = CuratorService(call.bot)
+    if not await svc.is_curator(curator_id):
+        await call.answer("Куратор с таким ID не найден.", show_alert=True)
+        return
+
+    record = await svc.get_curator_record(curator_id) or {}
+    owner_label = "Статистика куратора"
+    if record.get("full_name"):
+        owner_label = f"{owner_label} {record['full_name']}"
+
+    result = await prepare_curator_all_time_stats(svc, curator_id, owner_label=owner_label)
+    if result is None:
+        await call.message.answer(
+            "У этого куратора пока нет приглашенных пользователей.",
+            reply_markup=AdminKeyboards.back_to_admin_menu(),
+        )
+        await call.answer()
+        return
+
+    document, caption = result
+    await call.message.answer_document(
+        document,
+        caption=caption,
+        reply_markup=AdminKeyboards.back_to_admin_menu(),
+    )
+    await call.answer()
 
 
 @router.message(AdminBroadcast.waiting_message)
