@@ -101,8 +101,8 @@ async def prompt_curator_info(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "adm_menu:all_stats")
 async def send_all_curators_stats(call: CallbackQuery) -> None:
-    if not await _is_super_admin(call.from_user.id):
-        await call.answer("Эта функция доступна только супер-администратору.", show_alert=True)
+    if not (await _is_super_admin(call.from_user.id) or await _is_admin(call.from_user.id)):
+        await call.answer("Эта функция доступна только администраторам.", show_alert=True)
         return
 
     svc = CuratorService(call.bot)

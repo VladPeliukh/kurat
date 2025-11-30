@@ -12,6 +12,10 @@ class AdminKeyboards:
             text="Информация о кураторе",
             callback_data="adm_menu:curator_info",
         )
+        builder.button(
+            text="Посмотреть всю статистику",
+            callback_data="adm_menu:all_stats",
+        )
         if is_super_admin:
             builder.button(
                 text="Посмотреть всю статистику",
