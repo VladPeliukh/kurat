@@ -34,9 +34,16 @@ async def show_admin_menu(message: Message) -> None:
         await message.answer("Эта команда доступна только администраторам.")
         return
 
+    open_invite_enabled = None
+    if is_super_admin:
+        open_invite_enabled = await CuratorService(message.bot).is_open_invite_enabled()
+
     await message.answer(
         "АДМИН-МЕНЮ",
-        reply_markup=AdminKeyboards.main_menu(is_super_admin=is_super_admin),
+        reply_markup=AdminKeyboards.main_menu(
+            is_super_admin=is_super_admin,
+            open_invite_enabled=open_invite_enabled,
+        ),
     )
 
 
@@ -53,11 +60,44 @@ async def admin_menu_open(call: CallbackQuery) -> None:
     try:
         await call.message.answer(
             "АДМИН-МЕНЮ",
-            reply_markup=AdminKeyboards.main_menu(is_super_admin=is_super_admin),
+            reply_markup=AdminKeyboards.main_menu(
+                is_super_admin=is_super_admin,
+                open_invite_enabled=(
+                    await CuratorService(call.bot).is_open_invite_enabled()
+                    if is_super_admin
+                    else None
+                ),
+            ),
         )
     except Exception:
         pass
     await call.answer()
+
+
+@router.callback_query(F.data == "adm_menu:toggle_open_invite")
+async def toggle_open_invite(call: CallbackQuery) -> None:
+    if not await _is_super_admin(call.from_user.id):
+        await call.answer("Эта функция доступна только супер-администратору.", show_alert=True)
+        return
+
+    svc = CuratorService(call.bot)
+    enabled = await svc.is_open_invite_enabled()
+    new_value = not enabled
+    await svc.set_open_invite_enabled(new_value)
+
+    status = "Автоматическое приглашение включено." if new_value else "Автоматическое приглашение отключено."
+
+    try:
+        await call.message.edit_reply_markup(
+            reply_markup=AdminKeyboards.main_menu(
+                is_super_admin=True,
+                open_invite_enabled=new_value,
+            )
+        )
+    except Exception:
+        pass
+
+    await call.answer(status, show_alert=False)
 
 
 @router.callback_query(F.data == "adm_menu:broadcast")

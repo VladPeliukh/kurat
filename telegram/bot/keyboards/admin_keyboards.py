@@ -6,7 +6,9 @@ class AdminKeyboards:
     """Фабрика клавиатур, используемых администраторами."""
 
     @staticmethod
-    def main_menu(is_super_admin: bool = False) -> InlineKeyboardMarkup:
+    def main_menu(
+        *, is_super_admin: bool = False, open_invite_enabled: bool | None = None
+    ) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.button(
             text="Информация о кураторе",
@@ -18,10 +20,6 @@ class AdminKeyboards:
         )
         if is_super_admin:
             builder.button(
-                text="Посмотреть всю статистику",
-                callback_data="adm_menu:all_stats",
-            )
-            builder.button(
                 text="Рассылка",
                 callback_data="adm_menu:broadcast",
             )
@@ -29,6 +27,15 @@ class AdminKeyboards:
                 text="Назначить админа",
                 callback_data="adm_menu:promote_admin",
             )
+            if open_invite_enabled is not None:
+                builder.button(
+                    text=(
+                        "Отключить приглашение"
+                        if open_invite_enabled
+                        else "Включить приглашение"
+                    ),
+                    callback_data="adm_menu:toggle_open_invite",
+                )
         builder.adjust(1)
         return builder.as_markup()
 
