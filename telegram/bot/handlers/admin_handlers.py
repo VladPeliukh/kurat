@@ -172,7 +172,11 @@ async def send_curator_info(message: Message, state: FSMContext) -> None:
         await state.clear()
         return
 
-    await message.answer(result, reply_markup=AdminKeyboards.back_to_admin_menu())
+    await message.answer(
+        result,
+        reply_markup=AdminKeyboards.back_to_admin_menu(),
+        disable_web_page_preview=True,
+    )
     await state.clear()
 
 
