@@ -9,10 +9,6 @@ class AdminKeyboards:
     def main_menu(is_super_admin: bool = False) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.button(
-            text="Посмотреть статистику куратора",
-            callback_data="adm_menu:curator_stats",
-        )
-        builder.button(
             text="Информация о кураторе",
             callback_data="adm_menu:curator_info",
         )
