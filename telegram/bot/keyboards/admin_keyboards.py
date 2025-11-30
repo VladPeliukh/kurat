@@ -14,6 +14,10 @@ class AdminKeyboards:
         )
         if is_super_admin:
             builder.button(
+                text="Посмотреть всю статистику",
+                callback_data="adm_menu:all_stats",
+            )
+            builder.button(
                 text="Рассылка",
                 callback_data="adm_menu:broadcast",
             )

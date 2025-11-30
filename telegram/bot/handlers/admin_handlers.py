@@ -7,7 +7,11 @@ from ..keyboards import AdminKeyboards
 from ..services.admin_service import AdminService
 from ..services.curator_service import CuratorService
 from ..states.admin_states import AdminBroadcast, AdminCuratorInfo, AdminPromoteAdmin
-from ..utils.curator_stats import prepare_curator_all_time_stats, prepare_curator_info_report
+from ..utils.curator_stats import (
+    prepare_all_curators_snapshot,
+    prepare_curator_all_time_stats,
+    prepare_curator_info_report,
+)
 
 
 router = Router()
@@ -91,6 +95,28 @@ async def prompt_curator_info(call: CallbackQuery, state: FSMContext) -> None:
     await call.message.answer(
         "Введите ID куратора, информацию о котором хотите получить.",
         reply_markup=AdminKeyboards.back_to_admin_menu(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm_menu:all_stats")
+async def send_all_curators_stats(call: CallbackQuery) -> None:
+    if not await _is_super_admin(call.from_user.id):
+        await call.answer("Эта функция доступна только супер-администратору.", show_alert=True)
+        return
+
+    svc = CuratorService(call.bot)
+    snapshot = await prepare_all_curators_snapshot(svc)
+    if snapshot is None:
+        await call.message.answer(
+            "Нет данных для сводки.", reply_markup=AdminKeyboards.back_to_admin_menu()
+        )
+        await call.answer()
+        return
+
+    document, caption = snapshot
+    await call.message.answer_document(
+        document, caption=caption, reply_markup=AdminKeyboards.back_to_admin_menu()
     )
     await call.answer()
 
