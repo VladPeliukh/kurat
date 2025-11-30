@@ -9,10 +9,6 @@ class AdminKeyboards:
     def main_menu(is_super_admin: bool = False) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.button(
-            text="Посмотреть статистику куратора",
-            callback_data="adm_menu:curator_stats",
-        )
-        builder.button(
             text="Информация о кураторе",
             callback_data="adm_menu:curator_info",
         )
@@ -35,4 +31,18 @@ class AdminKeyboards:
                 [InlineKeyboardButton(text="В меню администратора", callback_data="adm_menu:open")]
             ]
         )
+
+    @staticmethod
+    def curator_info_actions(curator_id: int) -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        builder.button(
+            text="Посмотреть статистику этого куратора",
+            callback_data=f"adm_curator_stats:{curator_id}",
+        )
+        builder.button(
+            text="В меню администратора",
+            callback_data="adm_menu:open",
+        )
+        builder.adjust(1)
+        return builder.as_markup()
 
