@@ -104,7 +104,7 @@ async def prepare_curator_info_report(
     curator_id: int,
     *,
     owner_label: str | None = None,
-) -> tuple[BufferedInputFile, str] | None:
+) -> str | None:
     record = await svc.get_curator_record(curator_id)
     if record is None:
         return None
@@ -125,25 +125,21 @@ async def prepare_curator_info_report(
         inviter_id = inviter.get("user_id")
         if inviter_id:
             inviter_display = f"{inviter_display} (ID {inviter_id})" if inviter_display else f"ID {inviter_id}"
-    rows = [
-        [
-            record.get("user_id") or curator_id,
-            record.get("full_name") or "",
-            username,
-            record.get("source_link") or "",
-            record.get("invite_link") or "",
-            promoted_text,
-            inviter_display,
-        ]
-    ]
-
-    csv_bytes = build_simple_table_csv(CURATOR_INFO_HEADERS, rows)
-    filename = f"curator_info_{curator_id}.csv"
-    document = BufferedInputFile(csv_bytes, filename=filename)
     name_label = record.get("full_name") or f"ID {curator_id}"
     caption_label = owner_label or "Информация о кураторе"
-    caption = f"{caption_label} {name_label}."
-    return document, caption
+    header_line = f"{caption_label} {name_label}:"
+    values = [
+        record.get("user_id") or curator_id,
+        record.get("full_name") or "",
+        username,
+        record.get("source_link") or "",
+        record.get("invite_link") or "",
+        promoted_text,
+        inviter_display,
+    ]
+
+    info_lines = [f"{header}: {value or '—'}" for header, value in zip(CURATOR_INFO_HEADERS, values)]
+    return "\n".join([header_line, *info_lines])
 
 
 async def prepare_all_curators_snapshot(

@@ -172,8 +172,7 @@ async def send_curator_info(message: Message, state: FSMContext) -> None:
         await state.clear()
         return
 
-    document, caption = result
-    await message.answer_document(document, caption=caption, reply_markup=AdminKeyboards.back_to_admin_menu())
+    await message.answer(result, reply_markup=AdminKeyboards.back_to_admin_menu())
     await state.clear()
 
 
