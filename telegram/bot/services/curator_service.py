@@ -69,6 +69,14 @@ class CuratorService:
                 )
                 await conn.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT
+                    )
+                    """
+                )
+                await conn.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS curator_partners (
                         curator_id BIGINT NOT NULL REFERENCES curators(user_id) ON DELETE CASCADE,
                         partner_user_id BIGINT NOT NULL,
@@ -676,5 +684,26 @@ class CuratorService:
                 partner_id,
                 datetime.now(timezone.utc),
             )
-        await self.clear_captcha_challenge(partner_id)
+
+    async def is_open_invite_enabled(self) -> bool:
+        async with self.pool.acquire() as conn:
+            raw = await conn.fetchval(
+                "SELECT value FROM settings WHERE key = $1",
+                "open_invite_enabled",
+            )
+        if raw is None:
+            return True
+        return str(raw).lower() != "false"
+
+    async def set_open_invite_enabled(self, enabled: bool) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO settings (key, value)
+                VALUES ($1, $2)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                """,
+                "open_invite_enabled",
+                "true" if enabled else "false",
+            )
 
