@@ -18,6 +18,10 @@ class AdminKeyboards:
             text="Посмотреть всю статистику",
             callback_data="adm_menu:all_stats",
         )
+        builder.button(
+            text="Посмотреть всю статистику за все время",
+            callback_data="adm_menu:all_stats_all_time",
+        )
         if is_super_admin:
             builder.button(
                 text="Рассылка",
