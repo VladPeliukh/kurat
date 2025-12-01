@@ -144,15 +144,35 @@ async def prepare_curator_info_report(
 
 async def prepare_all_curators_snapshot(
     svc: CuratorService,
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
 ) -> tuple[BufferedInputFile, str] | None:
     curators = await svc.list_all_curators()
     if not curators:
         return None
 
+    def _parse_promoted(raw: str | datetime | None) -> datetime | None:
+        if raw is None:
+            return None
+        try:
+            dt = datetime.fromisoformat(str(raw)) if not isinstance(raw, datetime) else raw
+        except Exception:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
     rows: list[list[str | int]] = []
     for curator in curators:
         curator_id = curator.get("user_id")
         if curator_id is None:
+            continue
+
+        promoted_dt = _parse_promoted(curator.get("promoted_at"))
+        if start and (promoted_dt is None or promoted_dt < start):
+            continue
+        if end and (promoted_dt is None or promoted_dt >= end):
             continue
 
         username = curator.get("username") or ""
@@ -187,9 +207,19 @@ async def prepare_all_curators_snapshot(
             ]
         )
 
+    if not rows:
+        return None
+
     csv_bytes = build_simple_table_csv(ALL_CURATORS_HEADERS, rows)
     filename = "curators_snapshot.csv"
+    if start or end:
+        start_suffix = start.strftime("%Y%m%d") if start else "all"
+        end_suffix = end.strftime("%Y%m%d") if end else "all"
+        filename = f"curators_snapshot_{start_suffix}_{end_suffix}.csv"
     document = BufferedInputFile(csv_bytes, filename=filename)
-    caption = "Сводка всех кураторов."
+    if start or end:
+        caption = "Сводка кураторов за выбранный период."
+    else:
+        caption = "Сводка всех кураторов."
     return document, caption
 
