@@ -1,5 +1,7 @@
+import asyncio
 import html
 import random
+from contextlib import suppress
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Callable
 
@@ -42,6 +44,7 @@ router = Router()
 _captcha_generator = NumberCaptcha()
 _pending_curator_messages: dict[int, int] = {}
 _CURATOR_PARTNERS_PAGE_SIZE = 10
+_GROUP_MESSAGE_LIFETIME_SECONDS = 15
 
 
 async def _is_admin(user_id: int) -> bool:
@@ -373,6 +376,22 @@ def _is_primary_group(message: Message) -> bool:
     return message.chat.type in {"group", "supergroup"}
 
 
+def _schedule_group_message_deletion(message: Message) -> None:
+    async def _delete_later() -> None:
+        await asyncio.sleep(_GROUP_MESSAGE_LIFETIME_SECONDS)
+        with suppress(Exception):
+            await message.bot.delete_message(message.chat.id, message.message_id)
+
+    asyncio.create_task(_delete_later())
+
+
+async def _answer_with_group_timeout(message: Message, *args, **kwargs) -> Message:
+    response = await message.answer(*args, **kwargs)
+    if _is_primary_group(message):
+        _schedule_group_message_deletion(response)
+    return response
+
+
 async def _promote_by_group_trigger(
     message: Message,
     *,
@@ -386,11 +405,10 @@ async def _promote_by_group_trigger(
     svc = CuratorService(message.bot)
 
     if require_open_invite and not await svc.is_open_invite_enabled():
-        await message.answer("Автоматическое приглашение сейчас отключено супер-администратором.")
         return
 
     if await svc.is_curator(message.from_user.id):
-        await message.answer("Вы уже являетесь куратором.")
+        await _answer_with_group_timeout(message, "Вы уже являетесь куратором.")
         return
 
     link = await _promote_user_to_curator(
@@ -404,10 +422,13 @@ async def _promote_by_group_trigger(
         is_group_member=True,
     )
 
-    await message.answer(
-        f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+    await _answer_with_group_timeout(
+        message,
+        (
+            "Теперь вы куратор. Ваша персональная ссылка:\n"
+            f"{link}\n\nМеню куратора доступно в личном чате с ботом."
+        ),
         disable_web_page_preview=True,
-        reply_markup=CuratorKeyboards.invite(),
     )
 
 
@@ -415,7 +436,9 @@ async def _promote_by_group_trigger(
 async def promote_by_message(message: Message) -> None:
     inviter_id = Config.SUPER_ADMIN
     if inviter_id is None:
-        await message.answer("Функция временно недоступна: не задан супер-администратор.")
+        await _answer_with_group_timeout(
+            message, "Функция временно недоступна: не задан супер-администратор."
+        )
         return
 
     await _promote_by_group_trigger(
