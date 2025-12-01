@@ -4,7 +4,7 @@ import calendar
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Iterable
+from typing import Iterable, Type
 
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -18,6 +18,15 @@ class CalendarView(str, Enum):
 
 
 class CuratorCalendarCallback(CallbackData, prefix="curcal"):
+    target: str
+    action: str
+    year: int
+    month: int
+    day: int | None = None
+    page: int | None = None
+
+
+class AdminCalendarCallback(CallbackData, prefix="admcal"):
     target: str
     action: str
     year: int
@@ -87,10 +96,17 @@ class CuratorCalendarKeyboard:
         return start, end
 
     @staticmethod
-    def _noop_button(target: str, year: int, month: int, text: str) -> InlineKeyboardButton:
+    def _noop_button(
+        target: str,
+        year: int,
+        month: int,
+        text: str,
+        *,
+        callback_factory: Type[CallbackData],
+    ) -> InlineKeyboardButton:
         return InlineKeyboardButton(
             text=text,
-            callback_data=CuratorCalendarCallback(
+            callback_data=callback_factory(
                 target=target,
                 action="noop",
                 year=year,
@@ -117,6 +133,7 @@ class CuratorCalendarKeyboard:
         state: CalendarState,
         *,
         target: str,
+        callback_factory: Type[CallbackData] = CuratorCalendarCallback,
     ) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         year = state.year
@@ -129,17 +146,23 @@ class CuratorCalendarKeyboard:
             builder.row(
                 InlineKeyboardButton(
                     text="⬅️",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="prev_month",
                         year=prev_year,
                         month=prev_month,
                     ).pack(),
                 ),
-                cls._noop_button(target, year, month, f"{cls.MONTH_NAMES[month - 1]} {year}"),
+                cls._noop_button(
+                    target,
+                    year,
+                    month,
+                    f"{cls.MONTH_NAMES[month - 1]} {year}",
+                    callback_factory=callback_factory,
+                ),
                 InlineKeyboardButton(
                     text="➡️",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="next_month",
                         year=next_year,
@@ -151,7 +174,7 @@ class CuratorCalendarKeyboard:
             builder.row(
                 InlineKeyboardButton(
                     text="📅 Месяц",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="show_months",
                         year=year,
@@ -160,7 +183,7 @@ class CuratorCalendarKeyboard:
                 ),
                 InlineKeyboardButton(
                     text="📆 Год",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="show_years",
                         year=year,
@@ -172,7 +195,13 @@ class CuratorCalendarKeyboard:
             )
             builder.row(
                 *[
-                    cls._noop_button(target, year, month, name)
+                    cls._noop_button(
+                        target,
+                        year,
+                        month,
+                        name,
+                        callback_factory=callback_factory,
+                    )
                     for name in cls.WEEKDAY_NAMES
                 ],
                 width=7,
@@ -187,7 +216,7 @@ class CuratorCalendarKeyboard:
                         buttons.append(
                             InlineKeyboardButton(
                                 text=f"{day:02d}",
-                                callback_data=CuratorCalendarCallback(
+                                callback_data=callback_factory(
                                     target=target,
                                     action="set_day",
                                     year=year,
@@ -201,17 +230,23 @@ class CuratorCalendarKeyboard:
             builder.row(
                 InlineKeyboardButton(
                     text="⬅️",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="prev_year",
                         year=year - 1,
                         month=month,
                     ).pack(),
                 ),
-                cls._noop_button(target, year, month, f"{year}"),
+                cls._noop_button(
+                    target,
+                    year,
+                    month,
+                    f"{year}",
+                    callback_factory=callback_factory,
+                ),
                 InlineKeyboardButton(
                     text="➡️",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="next_year",
                         year=year + 1,
@@ -225,7 +260,7 @@ class CuratorCalendarKeyboard:
                 (
                     InlineKeyboardButton(
                         text=cls.MONTH_SHORT_NAMES[index],
-                        callback_data=CuratorCalendarCallback(
+                        callback_data=callback_factory(
                             target=target,
                             action="set_month",
                             year=year,
@@ -239,7 +274,7 @@ class CuratorCalendarKeyboard:
             builder.row(
                 InlineKeyboardButton(
                     text="📅 Дни",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="show_days",
                         year=year,
@@ -248,7 +283,7 @@ class CuratorCalendarKeyboard:
                 ),
                 InlineKeyboardButton(
                     text="📆 Год",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="show_years",
                         year=year,
@@ -264,7 +299,7 @@ class CuratorCalendarKeyboard:
             builder.row(
                 InlineKeyboardButton(
                     text="⬅️",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="prev_year_page",
                         year=start_year - 12,
@@ -272,10 +307,16 @@ class CuratorCalendarKeyboard:
                         page=max(1, year_page - 12),
                     ).pack(),
                 ),
-                cls._noop_button(target, year, month, f"{start_year} — {end_year}"),
+                cls._noop_button(
+                    target,
+                    year,
+                    month,
+                    f"{start_year} — {end_year}",
+                    callback_factory=callback_factory,
+                ),
                 InlineKeyboardButton(
                     text="➡️",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="next_year_page",
                         year=end_year + 1,
@@ -290,7 +331,7 @@ class CuratorCalendarKeyboard:
                 (
                     InlineKeyboardButton(
                         text=str(current_year),
-                        callback_data=CuratorCalendarCallback(
+                        callback_data=callback_factory(
                             target=target,
                             action="set_year",
                             year=current_year,
@@ -304,7 +345,7 @@ class CuratorCalendarKeyboard:
             builder.row(
                 InlineKeyboardButton(
                     text="📅 Дни",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="show_days",
                         year=year,
@@ -313,7 +354,7 @@ class CuratorCalendarKeyboard:
                 ),
                 InlineKeyboardButton(
                     text="📅 Месяц",
-                    callback_data=CuratorCalendarCallback(
+                    callback_data=callback_factory(
                         target=target,
                         action="show_months",
                         year=year,
@@ -373,6 +414,7 @@ def build_calendar_keyboard(
 __all__ = [
     "CalendarState",
     "CalendarView",
+    "AdminCalendarCallback",
     "CuratorCalendarCallback",
     "CuratorCalendarKeyboard",
     "build_calendar_keyboard",
