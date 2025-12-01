@@ -668,6 +668,7 @@ class CuratorService:
                 {
                     "source_link": record.get("source_link"),
                     "invite_link": record.get("invite_link"),
+                    "is_group_member": record.get("is_group_member"),
                     "promoted_at": record.get("promoted_at"),
                     "ref_code": record.get("ref_code"),
                 }

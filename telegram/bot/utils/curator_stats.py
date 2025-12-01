@@ -15,6 +15,7 @@ CURATOR_STATS_HEADERS = [
     "Username",
     "Ссылка приглашения",
     "Персональная ссылка",
+    "В группе",
     "Дата и время назначения",
 ]
 
@@ -81,6 +82,7 @@ async def collect_curator_stats_rows(
                 username,
                 stats.get("source_link") or "",
                 stats.get("invite_link") or "",
+                _format_group_membership(stats.get("is_group_member")),
                 _format_promoted_at(stats.get("promoted_at")),
             ]
         )
@@ -142,6 +144,7 @@ async def prepare_curator_info_report(
         username,
         record.get("source_link") or "",
         record.get("invite_link") or "",
+        membership_text,
         promoted_text,
         inviter_display,
         membership_text,
