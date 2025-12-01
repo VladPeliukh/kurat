@@ -365,12 +365,19 @@ async def _promote_user_to_curator(
     return link
 
 
-@router.message(F.text.func(lambda text: text is not None and text.strip() == "Стать куратором"))
-async def promote_by_message(message: Message) -> None:
+def _is_primary_group(message: Message) -> bool:
     if Config.PRIMARY_GROUP_ID:
-        if message.chat.id != Config.PRIMARY_GROUP_ID:
-            return
-    elif message.chat.type not in {"group", "supergroup"}:
+        return message.chat.id == Config.PRIMARY_GROUP_ID
+    return message.chat.type in {"group", "supergroup"}
+
+
+async def _promote_by_group_trigger(
+    message: Message,
+    *,
+    inviter_id: int | None,
+    source_link: str,
+) -> None:
+    if not _is_primary_group(message):
         return
 
     svc = CuratorService(message.bot)
@@ -383,11 +390,6 @@ async def promote_by_message(message: Message) -> None:
         await message.answer("Вы уже являетесь куратором.")
         return
 
-    inviter_id = Config.SUPER_ADMIN
-    if inviter_id is None:
-        await message.answer("Функция временно недоступна: не задан супер-администратор.")
-        return
-
     link = await _promote_user_to_curator(
         svc,
         message.bot,
@@ -395,13 +397,36 @@ async def promote_by_message(message: Message) -> None:
         username=message.from_user.username,
         full_name=message.from_user.full_name,
         inviter_id=inviter_id,
-        source_link="super_admin_invite",
+        source_link=source_link,
     )
 
     await message.answer(
         f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
         disable_web_page_preview=True,
         reply_markup=CuratorKeyboards.invite(),
+    )
+
+
+@router.message(F.text.func(lambda text: text is not None and text.strip() == "Стать куратором"))
+async def promote_by_message(message: Message) -> None:
+    inviter_id = Config.SUPER_ADMIN
+    if inviter_id is None:
+        await message.answer("Функция временно недоступна: не задан супер-администратор.")
+        return
+
+    await _promote_by_group_trigger(
+        message,
+        inviter_id=inviter_id,
+        source_link="super_admin_invite",
+    )
+
+
+@router.message(F.text.func(lambda text: text is not None and text.strip() == "+"))
+async def promote_by_plus_sign(message: Message) -> None:
+    await _promote_by_group_trigger(
+        message,
+        inviter_id=None,
+        source_link="self_plus_invite",
     )
 
 
