@@ -17,6 +17,9 @@ from ..utils.curator_stats import (
 router = Router()
 
 
+_open_invite_toggle_locked = False
+
+
 async def _is_admin(user_id: int) -> bool:
     admin_service = AdminService()
     return await admin_service.is_admin(user_id)
@@ -27,15 +30,21 @@ async def _is_super_admin(user_id: int) -> bool:
     return await admin_service.is_super_admin(user_id)
 
 
+def _is_private_chat(message: Message) -> bool:
+    return message.chat.type == "private"
+
+
 @router.message(Command("admin"))
 async def show_admin_menu(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     is_super_admin = await _is_super_admin(message.from_user.id)
     if not (is_super_admin or await _is_admin(message.from_user.id)):
         await message.answer("Эта команда доступна только администраторам.")
         return
 
     open_invite_enabled = None
-    if is_super_admin:
+    if is_super_admin and not _open_invite_toggle_locked:
         open_invite_enabled = await CuratorService(message.bot).is_open_invite_enabled()
 
     await message.answer(
@@ -64,7 +73,7 @@ async def admin_menu_open(call: CallbackQuery) -> None:
                 is_super_admin=is_super_admin,
                 open_invite_enabled=(
                     await CuratorService(call.bot).is_open_invite_enabled()
-                    if is_super_admin
+                    if is_super_admin and not _open_invite_toggle_locked
                     else None
                 ),
             ),
@@ -76,8 +85,17 @@ async def admin_menu_open(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "adm_menu:toggle_open_invite")
 async def toggle_open_invite(call: CallbackQuery) -> None:
+    global _open_invite_toggle_locked
+
     if not await _is_super_admin(call.from_user.id):
         await call.answer("Эта функция доступна только супер-администратору.", show_alert=True)
+        return
+
+    if _open_invite_toggle_locked:
+        await call.answer(
+            "Повторное включение возможно только после перезапуска бота.",
+            show_alert=True,
+        )
         return
 
     svc = CuratorService(call.bot)
@@ -91,11 +109,14 @@ async def toggle_open_invite(call: CallbackQuery) -> None:
         await call.message.edit_reply_markup(
             reply_markup=AdminKeyboards.main_menu(
                 is_super_admin=True,
-                open_invite_enabled=new_value,
+                open_invite_enabled=None if not new_value else new_value,
             )
         )
     except Exception:
         pass
+
+    if not new_value:
+        _open_invite_toggle_locked = True
 
     await call.answer(status, show_alert=False)
 
@@ -163,6 +184,8 @@ async def send_all_curators_stats(call: CallbackQuery) -> None:
 
 @router.message(AdminCuratorInfo.waiting_curator_id)
 async def send_curator_info(message: Message, state: FSMContext) -> None:
+    if not _is_private_chat(message):
+        return
     if not await _is_admin(message.from_user.id):
         await message.answer("Эта функция доступна только администраторам.")
         await state.clear()
@@ -236,6 +259,8 @@ async def send_curator_stats_from_info(call: CallbackQuery) -> None:
 
 @router.message(AdminBroadcast.waiting_message)
 async def broadcast_message(message: Message, state: FSMContext) -> None:
+    if not _is_private_chat(message):
+        return
     if not await _is_super_admin(message.from_user.id):
         await message.answer("Эта функция доступна только супер-администратору.")
         await state.clear()
@@ -274,6 +299,8 @@ async def broadcast_message(message: Message, state: FSMContext) -> None:
 
 @router.message(AdminPromoteAdmin.waiting_curator_id)
 async def promote_admin(message: Message, state: FSMContext) -> None:
+    if not _is_private_chat(message):
+        return
     if not await _is_super_admin(message.from_user.id):
         await message.answer("Эта функция доступна только супер-администратору.")
         await state.clear()
