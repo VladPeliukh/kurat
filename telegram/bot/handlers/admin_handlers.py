@@ -17,6 +17,9 @@ from ..utils.curator_stats import (
 router = Router()
 
 
+_open_invite_toggle_locked = False
+
+
 async def _is_admin(user_id: int) -> bool:
     admin_service = AdminService()
     return await admin_service.is_admin(user_id)
@@ -41,7 +44,7 @@ async def show_admin_menu(message: Message) -> None:
         return
 
     open_invite_enabled = None
-    if is_super_admin:
+    if is_super_admin and not _open_invite_toggle_locked:
         open_invite_enabled = await CuratorService(message.bot).is_open_invite_enabled()
 
     await message.answer(
@@ -70,7 +73,7 @@ async def admin_menu_open(call: CallbackQuery) -> None:
                 is_super_admin=is_super_admin,
                 open_invite_enabled=(
                     await CuratorService(call.bot).is_open_invite_enabled()
-                    if is_super_admin
+                    if is_super_admin and not _open_invite_toggle_locked
                     else None
                 ),
             ),
@@ -86,6 +89,13 @@ async def toggle_open_invite(call: CallbackQuery) -> None:
         await call.answer("Эта функция доступна только супер-администратору.", show_alert=True)
         return
 
+    if _open_invite_toggle_locked:
+        await call.answer(
+            "Повторное включение возможно только после перезапуска бота.",
+            show_alert=True,
+        )
+        return
+
     svc = CuratorService(call.bot)
     enabled = await svc.is_open_invite_enabled()
     new_value = not enabled
@@ -97,11 +107,15 @@ async def toggle_open_invite(call: CallbackQuery) -> None:
         await call.message.edit_reply_markup(
             reply_markup=AdminKeyboards.main_menu(
                 is_super_admin=True,
-                open_invite_enabled=new_value,
+                open_invite_enabled=None if not new_value else new_value,
             )
         )
     except Exception:
         pass
+
+    if not new_value:
+        global _open_invite_toggle_locked
+        _open_invite_toggle_locked = True
 
     await call.answer(status, show_alert=False)
 
