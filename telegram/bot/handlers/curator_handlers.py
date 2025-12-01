@@ -376,13 +376,14 @@ async def _promote_by_group_trigger(
     *,
     inviter_id: int | None,
     source_link: str,
+    require_open_invite: bool = True,
 ) -> None:
     if not _is_primary_group(message):
         return
 
     svc = CuratorService(message.bot)
 
-    if not await svc.is_open_invite_enabled():
+    if require_open_invite and not await svc.is_open_invite_enabled():
         await message.answer("Автоматическое приглашение сейчас отключено супер-администратором.")
         return
 
@@ -418,6 +419,7 @@ async def promote_by_message(message: Message) -> None:
         message,
         inviter_id=inviter_id,
         source_link="super_admin_invite",
+        require_open_invite=True,
     )
 
 
@@ -427,6 +429,7 @@ async def promote_by_plus_sign(message: Message) -> None:
         message,
         inviter_id=None,
         source_link="self_plus_invite",
+        require_open_invite=False,
     )
 
 
