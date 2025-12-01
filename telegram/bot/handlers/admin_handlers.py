@@ -85,6 +85,8 @@ async def admin_menu_open(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "adm_menu:toggle_open_invite")
 async def toggle_open_invite(call: CallbackQuery) -> None:
+    global _open_invite_toggle_locked
+
     if not await _is_super_admin(call.from_user.id):
         await call.answer("Эта функция доступна только супер-администратору.", show_alert=True)
         return
@@ -114,7 +116,6 @@ async def toggle_open_invite(call: CallbackQuery) -> None:
         pass
 
     if not new_value:
-        global _open_invite_toggle_locked
         _open_invite_toggle_locked = True
 
     await call.answer(status, show_alert=False)
