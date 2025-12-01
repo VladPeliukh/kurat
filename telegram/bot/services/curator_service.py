@@ -8,6 +8,7 @@ import asyncpg
 from aiogram import Bot
 from zoneinfo import ZoneInfo
 
+from ..config import Config
 from ..utils.helpers import build_deeplink, make_ref_code
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
@@ -23,6 +24,7 @@ class Curator:
     partners: List[dict] | None = None
     source_link: Optional[str] = None
     promoted_at: Optional[str] = None
+    is_group_member: Optional[bool] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -47,6 +49,24 @@ class CuratorService:
     def configure(cls, pool: asyncpg.Pool) -> None:
         cls._pool = pool
 
+    async def _resolve_group_membership(
+        self, user_id: int, supplied: Optional[bool] = None
+    ) -> Optional[bool]:
+        if supplied is not None:
+            return supplied
+
+        group_id = Config.PRIMARY_GROUP_ID
+        if group_id is None:
+            return None
+
+        try:
+            member = await self.bot.get_chat_member(group_id, user_id)
+        except Exception:
+            return None
+
+        status = getattr(member, "status", "")
+        return status not in {"left", "kicked"}
+
     @classmethod
     async def init_storage(cls) -> None:
         if cls._pool is None:
@@ -63,9 +83,13 @@ class CuratorService:
                         invite_link TEXT,
                         source_link TEXT,
                         promoted_at TIMESTAMPTZ,
+                        is_group_member BOOLEAN,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                     """
+                )
+                await conn.execute(
+                    "ALTER TABLE curators ADD COLUMN IF NOT EXISTS is_group_member BOOLEAN"
                 )
                 await conn.execute(
                     """
@@ -149,7 +173,7 @@ class CuratorService:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT user_id, username, full_name, invite_link, source_link, promoted_at
+                SELECT user_id, username, full_name, invite_link, source_link, promoted_at, is_group_member
                 FROM curators
                 ORDER BY created_at ASC
                 """
@@ -169,6 +193,7 @@ class CuratorService:
                     "invite_link": row.get("invite_link"),
                     "source_link": row.get("source_link"),
                     "promoted_at": promoted_value,
+                    "is_group_member": row.get("is_group_member"),
                 }
             )
 
@@ -179,11 +204,14 @@ class CuratorService:
         user_id: int,
         username: Optional[str],
         full_name: str,
+        *,
+        is_group_member: Optional[bool] = None,
     ) -> Curator:
+        membership = await self._resolve_group_membership(user_id, is_group_member)
         async with self.pool.acquire() as conn:
             record = await conn.fetchrow(
                 """
-                SELECT user_id, username, full_name, ref_code, invite_link, source_link, promoted_at
+                SELECT user_id, username, full_name, ref_code, invite_link, source_link, promoted_at, is_group_member
                 FROM curators
                 WHERE user_id = $1
                 """,
@@ -192,13 +220,14 @@ class CuratorService:
             if record is None:
                 record = await conn.fetchrow(
                     """
-                    INSERT INTO curators (user_id, username, full_name)
-                    VALUES ($1, $2, $3)
-                    RETURNING user_id, username, full_name, ref_code, invite_link, source_link, promoted_at
+                    INSERT INTO curators (user_id, username, full_name, is_group_member)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING user_id, username, full_name, ref_code, invite_link, source_link, promoted_at, is_group_member
                     """,
                     user_id,
                     username,
                     full_name,
+                    membership,
                 )
             else:
                 updates: list[str] = []
@@ -212,6 +241,10 @@ class CuratorService:
                     updates.append(f"full_name = ${idx}")
                     params.append(full_name)
                     idx += 1
+                if membership is not None and record.get("is_group_member") != membership:
+                    updates.append(f"is_group_member = ${idx}")
+                    params.append(membership)
+                    idx += 1
                 if updates:
                     params.append(user_id)
                     await conn.execute(
@@ -220,7 +253,7 @@ class CuratorService:
                     )
                     record = await conn.fetchrow(
                         """
-                        SELECT user_id, username, full_name, ref_code, invite_link, source_link, promoted_at
+                        SELECT user_id, username, full_name, ref_code, invite_link, source_link, promoted_at, is_group_member
                         FROM curators
                         WHERE user_id = $1
                         """,
@@ -235,6 +268,7 @@ class CuratorService:
             partners=None,
             source_link=record.get("source_link"),
             promoted_at=record.get("promoted_at").isoformat() if record.get("promoted_at") else None,
+            is_group_member=record.get("is_group_member"),
         )
 
     async def get_or_create_personal_link(
@@ -242,8 +276,12 @@ class CuratorService:
         user_id: int,
         username: Optional[str],
         full_name: str,
+        *,
+        is_group_member: Optional[bool] = None,
     ) -> str:
-        cur = await self.ensure_curator_record(user_id, username, full_name)
+        cur = await self.ensure_curator_record(
+            user_id, username, full_name, is_group_member=is_group_member
+        )
         if not cur.ref_code:
             cur.ref_code = make_ref_code(16)
             me = await self.bot.get_me()
@@ -461,8 +499,15 @@ class CuratorService:
         full_name: str,
         *,
         source_link: Optional[str] = None,
+        is_group_member: Optional[bool] = None,
     ) -> str:
-        link = await self.get_or_create_personal_link(user_id, username, full_name)
+        membership = await self._resolve_group_membership(user_id, is_group_member)
+        link = await self.get_or_create_personal_link(
+            user_id,
+            username,
+            full_name,
+            is_group_member=membership,
+        )
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
@@ -471,7 +516,8 @@ class CuratorService:
                     full_name = $3,
                     invite_link = $4,
                     source_link = COALESCE($5, source_link),
-                    promoted_at = COALESCE(promoted_at, $6)
+                    promoted_at = COALESCE(promoted_at, $6),
+                    is_group_member = COALESCE($7, is_group_member)
                 WHERE user_id = $1
                 """,
                 user_id,
@@ -480,6 +526,7 @@ class CuratorService:
                 link,
                 source_link,
                 datetime.now(MOSCOW_TZ),
+                membership,
             )
         await self._clear_invite_source(user_id)
         return link
@@ -551,7 +598,7 @@ class CuratorService:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT user_id, username, full_name, ref_code, invite_link, source_link, promoted_at
+                SELECT user_id, username, full_name, ref_code, invite_link, source_link, promoted_at, is_group_member
                 FROM curators
                 WHERE user_id = $1
                 """,
@@ -567,6 +614,7 @@ class CuratorService:
             "invite_link": row.get("invite_link"),
             "source_link": row.get("source_link"),
             "promoted_at": row["promoted_at"].isoformat() if row.get("promoted_at") else None,
+            "is_group_member": row.get("is_group_member"),
         }
 
     async def get_curator_inviter(self, user_id: int) -> Optional[dict]:
@@ -620,6 +668,7 @@ class CuratorService:
                 {
                     "source_link": record.get("source_link"),
                     "invite_link": record.get("invite_link"),
+                    "is_group_member": record.get("is_group_member"),
                     "promoted_at": record.get("promoted_at"),
                     "ref_code": record.get("ref_code"),
                 }
