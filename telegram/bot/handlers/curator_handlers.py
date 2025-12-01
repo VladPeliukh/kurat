@@ -357,7 +357,7 @@ async def _promote_user_to_curator(
                 ),
             )
         except Exception:
-        pass
+            pass
     return link
 
 
