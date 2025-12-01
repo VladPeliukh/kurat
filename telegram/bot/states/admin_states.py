@@ -12,3 +12,8 @@ class AdminBroadcast(StatesGroup):
 class AdminPromoteAdmin(StatesGroup):
     waiting_curator_id = State()
 
+
+class AdminStatsSelection(StatesGroup):
+    choosing_start = State()
+    choosing_end = State()
+

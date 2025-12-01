@@ -71,6 +71,10 @@ async def _require_curator_or_admin_callback(call: CallbackQuery, svc: CuratorSe
     return False
 
 
+def _is_private_chat(message: Message) -> bool:
+    return message.chat.type == "private"
+
+
 def _initial_calendar_state(reference: date | None = None) -> CalendarState:
     if reference is None:
         reference = datetime.now(MOSCOW_TZ).date()
@@ -329,6 +333,7 @@ async def _promote_user_to_curator(
     full_name: str | None,
     inviter_id: int | None = None,
     source_link: str | None = None,
+    is_group_member: bool | None = None,
 ) -> str:
     await _ensure_inviter_record(svc, bot, inviter_id)
     if inviter_id:
@@ -338,6 +343,7 @@ async def _promote_user_to_curator(
         username,
         full_name or "",
         source_link=source_link,
+        is_group_member=is_group_member,
     )
     try:
         await bot.set_my_commands(
@@ -361,25 +367,30 @@ async def _promote_user_to_curator(
     return link
 
 
-@router.message(F.text.func(lambda text: text and text.strip().lower() == "стать куратором"))
-async def promote_by_message(message: Message) -> None:
-    if message.chat.type in {"group", "supergroup"}:
-        if Config.PRIMARY_GROUP_ID and message.chat.id != Config.PRIMARY_GROUP_ID:
-            return
+def _is_primary_group(message: Message) -> bool:
+    if Config.PRIMARY_GROUP_ID:
+        return message.chat.id == Config.PRIMARY_GROUP_ID
+    return message.chat.type in {"group", "supergroup"}
+
+
+async def _promote_by_group_trigger(
+    message: Message,
+    *,
+    inviter_id: int | None,
+    source_link: str,
+    require_open_invite: bool = True,
+) -> None:
+    if not _is_primary_group(message):
+        return
 
     svc = CuratorService(message.bot)
 
-    if not await svc.is_open_invite_enabled():
+    if require_open_invite and not await svc.is_open_invite_enabled():
         await message.answer("Автоматическое приглашение сейчас отключено супер-администратором.")
         return
 
     if await svc.is_curator(message.from_user.id):
         await message.answer("Вы уже являетесь куратором.")
-        return
-
-    inviter_id = Config.SUPER_ADMIN
-    if inviter_id is None:
-        await message.answer("Функция временно недоступна: не задан супер-администратор.")
         return
 
     link = await _promote_user_to_curator(
@@ -389,7 +400,8 @@ async def promote_by_message(message: Message) -> None:
         username=message.from_user.username,
         full_name=message.from_user.full_name,
         inviter_id=inviter_id,
-        source_link="super_admin_invite",
+        source_link=source_link,
+        is_group_member=True,
     )
 
     await message.answer(
@@ -399,8 +411,35 @@ async def promote_by_message(message: Message) -> None:
     )
 
 
+@router.message(F.text.func(lambda text: text is not None and text.strip() == "Стать куратором"))
+async def promote_by_message(message: Message) -> None:
+    inviter_id = Config.SUPER_ADMIN
+    if inviter_id is None:
+        await message.answer("Функция временно недоступна: не задан супер-администратор.")
+        return
+
+    await _promote_by_group_trigger(
+        message,
+        inviter_id=inviter_id,
+        source_link="super_admin_invite",
+        require_open_invite=True,
+    )
+
+
+@router.message(F.text.func(lambda text: text is not None and text.strip() == "+"))
+async def promote_by_plus_sign(message: Message) -> None:
+    await _promote_by_group_trigger(
+        message,
+        inviter_id=None,
+        source_link="self_plus_invite",
+        require_open_invite=False,
+    )
+
+
 @router.message(Command('curator'))
 async def show_curator_menu(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     svc = CuratorService(message.bot)
     if not await _require_curator_or_admin_message(message, svc):
         return
@@ -799,6 +838,8 @@ async def curator_message_prompt(call: CallbackQuery) -> None:
     await call.answer("Введите сообщение", show_alert=False)
 @router.message(Command('invite'))
 async def handle_invite(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     svc = CuratorService(message.bot)
     if not await _require_curator_or_admin_message(message, svc):
         return
@@ -813,6 +854,8 @@ async def handle_invite(message: Message) -> None:
 
 @router.message(Command('static'))
 async def handle_curator_full_stats(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     svc = CuratorService(message.bot)
     if not await _require_curator_or_admin_message(message, svc):
         return
@@ -827,6 +870,8 @@ async def handle_curator_full_stats(message: Message) -> None:
 
 @router.message(CommandStart(deep_link=True))
 async def start_with_payload(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     payload = message.text.split(' ', 1)[1] if ' ' in message.text else ''
     if not payload:
         return
@@ -894,6 +939,8 @@ async def start_with_payload(message: Message) -> None:
 
 @router.message(CommandStart())
 async def start_without_payload(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     text = message.text or ""
     if " " in text:
         return
@@ -1110,6 +1157,8 @@ async def cancel_curator_message(call: CallbackQuery) -> None:
 
 @router.message(Command("cancel"))
 async def cancel_curator_action(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     if _pending_curator_messages.pop(message.from_user.id, None) is not None:
         await message.answer("Действие отменено.")
     else:
@@ -1118,6 +1167,8 @@ async def cancel_curator_action(message: Message) -> None:
 
 @router.message(F.text)
 async def handle_curator_outgoing_message(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     partner_id = _pending_curator_messages.get(message.from_user.id)
     if not partner_id:
         return

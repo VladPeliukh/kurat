@@ -18,12 +18,13 @@ CURATOR_STATS_HEADERS = [
     "Дата и время назначения",
 ]
 
-CURATOR_INFO_HEADERS = CURATOR_STATS_HEADERS + ["Пригласил"]
+CURATOR_INFO_HEADERS = CURATOR_STATS_HEADERS + ["Пригласил", "В группе"]
 
 ALL_CURATORS_HEADERS = [
     "ID",
     "Username",
     "Имя",
+    "В группе",
     "Пригласил",
     "Персональная ссылка",
     "Ссылка источника",
@@ -42,6 +43,12 @@ def _format_promoted_at(promoted_at: str | None) -> str:
         return dt.strftime("%d.%m.%Y %H:%M:%S")
     except Exception:
         return str(promoted_at)
+
+
+def _format_group_membership(is_member: bool | None) -> str:
+    if is_member is None:
+        return ""
+    return "Да" if is_member else "Нет"
 
 
 async def collect_curator_stats_rows(
@@ -114,6 +121,7 @@ async def prepare_curator_info_report(
         username = f"@{username}"
 
     promoted_text = _format_promoted_at(record.get("promoted_at"))
+    membership_text = _format_group_membership(record.get("is_group_member"))
     inviter = await svc.get_curator_inviter(curator_id)
     inviter_display = ""
     if inviter:
@@ -136,6 +144,7 @@ async def prepare_curator_info_report(
         record.get("invite_link") or "",
         promoted_text,
         inviter_display,
+        membership_text,
     ]
 
     info_lines = [f"{header}: {value or '—'}" for header, value in zip(CURATOR_INFO_HEADERS, values)]
@@ -144,15 +153,35 @@ async def prepare_curator_info_report(
 
 async def prepare_all_curators_snapshot(
     svc: CuratorService,
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
 ) -> tuple[BufferedInputFile, str] | None:
     curators = await svc.list_all_curators()
     if not curators:
         return None
 
+    def _parse_promoted(raw: str | datetime | None) -> datetime | None:
+        if raw is None:
+            return None
+        try:
+            dt = datetime.fromisoformat(str(raw)) if not isinstance(raw, datetime) else raw
+        except Exception:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
     rows: list[list[str | int]] = []
     for curator in curators:
         curator_id = curator.get("user_id")
         if curator_id is None:
+            continue
+
+        promoted_dt = _parse_promoted(curator.get("promoted_at"))
+        if start and (promoted_dt is None or promoted_dt < start):
+            continue
+        if end and (promoted_dt is None or promoted_dt >= end):
             continue
 
         username = curator.get("username") or ""
@@ -180,6 +209,7 @@ async def prepare_all_curators_snapshot(
                 curator_id,
                 username,
                 curator.get("full_name") or "",
+                _format_group_membership(curator.get("is_group_member")),
                 inviter_display,
                 curator.get("invite_link") or "",
                 curator.get("source_link") or "",
@@ -187,9 +217,19 @@ async def prepare_all_curators_snapshot(
             ]
         )
 
+    if not rows:
+        return None
+
     csv_bytes = build_simple_table_csv(ALL_CURATORS_HEADERS, rows)
     filename = "curators_snapshot.csv"
+    if start or end:
+        start_suffix = start.strftime("%Y%m%d") if start else "all"
+        end_suffix = end.strftime("%Y%m%d") if end else "all"
+        filename = f"curators_snapshot_{start_suffix}_{end_suffix}.csv"
     document = BufferedInputFile(csv_bytes, filename=filename)
-    caption = "Сводка всех кураторов."
+    if start or end:
+        caption = "Сводка кураторов за выбранный период."
+    else:
+        caption = "Сводка всех кураторов."
     return document, caption
 
