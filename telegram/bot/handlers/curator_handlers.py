@@ -333,6 +333,7 @@ async def _promote_user_to_curator(
     full_name: str | None,
     inviter_id: int | None = None,
     source_link: str | None = None,
+    is_group_member: bool | None = None,
 ) -> str:
     await _ensure_inviter_record(svc, bot, inviter_id)
     if inviter_id:
@@ -342,6 +343,7 @@ async def _promote_user_to_curator(
         username,
         full_name or "",
         source_link=source_link,
+        is_group_member=is_group_member,
     )
     try:
         await bot.set_my_commands(
@@ -399,6 +401,7 @@ async def _promote_by_group_trigger(
         full_name=message.from_user.full_name,
         inviter_id=inviter_id,
         source_link=source_link,
+        is_group_member=True,
     )
 
     await message.answer(

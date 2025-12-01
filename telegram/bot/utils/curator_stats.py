@@ -18,12 +18,13 @@ CURATOR_STATS_HEADERS = [
     "Дата и время назначения",
 ]
 
-CURATOR_INFO_HEADERS = CURATOR_STATS_HEADERS + ["Пригласил"]
+CURATOR_INFO_HEADERS = CURATOR_STATS_HEADERS + ["Пригласил", "В группе"]
 
 ALL_CURATORS_HEADERS = [
     "ID",
     "Username",
     "Имя",
+    "В группе",
     "Пригласил",
     "Персональная ссылка",
     "Ссылка источника",
@@ -42,6 +43,12 @@ def _format_promoted_at(promoted_at: str | None) -> str:
         return dt.strftime("%d.%m.%Y %H:%M:%S")
     except Exception:
         return str(promoted_at)
+
+
+def _format_group_membership(is_member: bool | None) -> str:
+    if is_member is None:
+        return ""
+    return "Да" if is_member else "Нет"
 
 
 async def collect_curator_stats_rows(
@@ -114,6 +121,7 @@ async def prepare_curator_info_report(
         username = f"@{username}"
 
     promoted_text = _format_promoted_at(record.get("promoted_at"))
+    membership_text = _format_group_membership(record.get("is_group_member"))
     inviter = await svc.get_curator_inviter(curator_id)
     inviter_display = ""
     if inviter:
@@ -136,6 +144,7 @@ async def prepare_curator_info_report(
         record.get("invite_link") or "",
         promoted_text,
         inviter_display,
+        membership_text,
     ]
 
     info_lines = [f"{header}: {value or '—'}" for header, value in zip(CURATOR_INFO_HEADERS, values)]
@@ -200,6 +209,7 @@ async def prepare_all_curators_snapshot(
                 curator_id,
                 username,
                 curator.get("full_name") or "",
+                _format_group_membership(curator.get("is_group_member")),
                 inviter_display,
                 curator.get("invite_link") or "",
                 curator.get("source_link") or "",
