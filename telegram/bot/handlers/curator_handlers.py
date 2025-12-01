@@ -71,6 +71,10 @@ async def _require_curator_or_admin_callback(call: CallbackQuery, svc: CuratorSe
     return False
 
 
+def _is_private_chat(message: Message) -> bool:
+    return message.chat.type == "private"
+
+
 def _initial_calendar_state(reference: date | None = None) -> CalendarState:
     if reference is None:
         reference = datetime.now(MOSCOW_TZ).date()
@@ -403,6 +407,8 @@ async def promote_by_message(message: Message) -> None:
 
 @router.message(Command('curator'))
 async def show_curator_menu(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     svc = CuratorService(message.bot)
     if not await _require_curator_or_admin_message(message, svc):
         return
@@ -801,6 +807,8 @@ async def curator_message_prompt(call: CallbackQuery) -> None:
     await call.answer("Введите сообщение", show_alert=False)
 @router.message(Command('invite'))
 async def handle_invite(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     svc = CuratorService(message.bot)
     if not await _require_curator_or_admin_message(message, svc):
         return
@@ -815,6 +823,8 @@ async def handle_invite(message: Message) -> None:
 
 @router.message(Command('static'))
 async def handle_curator_full_stats(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     svc = CuratorService(message.bot)
     if not await _require_curator_or_admin_message(message, svc):
         return
@@ -829,6 +839,8 @@ async def handle_curator_full_stats(message: Message) -> None:
 
 @router.message(CommandStart(deep_link=True))
 async def start_with_payload(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     payload = message.text.split(' ', 1)[1] if ' ' in message.text else ''
     if not payload:
         return
@@ -896,6 +908,8 @@ async def start_with_payload(message: Message) -> None:
 
 @router.message(CommandStart())
 async def start_without_payload(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     text = message.text or ""
     if " " in text:
         return
@@ -1112,6 +1126,8 @@ async def cancel_curator_message(call: CallbackQuery) -> None:
 
 @router.message(Command("cancel"))
 async def cancel_curator_action(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     if _pending_curator_messages.pop(message.from_user.id, None) is not None:
         await message.answer("Действие отменено.")
     else:
@@ -1120,6 +1136,8 @@ async def cancel_curator_action(message: Message) -> None:
 
 @router.message(F.text)
 async def handle_curator_outgoing_message(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     partner_id = _pending_curator_messages.get(message.from_user.id)
     if not partner_id:
         return

@@ -27,8 +27,14 @@ async def _is_super_admin(user_id: int) -> bool:
     return await admin_service.is_super_admin(user_id)
 
 
+def _is_private_chat(message: Message) -> bool:
+    return message.chat.type == "private"
+
+
 @router.message(Command("admin"))
 async def show_admin_menu(message: Message) -> None:
+    if not _is_private_chat(message):
+        return
     is_super_admin = await _is_super_admin(message.from_user.id)
     if not (is_super_admin or await _is_admin(message.from_user.id)):
         await message.answer("Эта команда доступна только администраторам.")
@@ -163,6 +169,8 @@ async def send_all_curators_stats(call: CallbackQuery) -> None:
 
 @router.message(AdminCuratorInfo.waiting_curator_id)
 async def send_curator_info(message: Message, state: FSMContext) -> None:
+    if not _is_private_chat(message):
+        return
     if not await _is_admin(message.from_user.id):
         await message.answer("Эта функция доступна только администраторам.")
         await state.clear()
@@ -236,6 +244,8 @@ async def send_curator_stats_from_info(call: CallbackQuery) -> None:
 
 @router.message(AdminBroadcast.waiting_message)
 async def broadcast_message(message: Message, state: FSMContext) -> None:
+    if not _is_private_chat(message):
+        return
     if not await _is_super_admin(message.from_user.id):
         await message.answer("Эта функция доступна только супер-администратору.")
         await state.clear()
@@ -274,6 +284,8 @@ async def broadcast_message(message: Message, state: FSMContext) -> None:
 
 @router.message(AdminPromoteAdmin.waiting_curator_id)
 async def promote_admin(message: Message, state: FSMContext) -> None:
+    if not _is_private_chat(message):
+        return
     if not await _is_super_admin(message.from_user.id):
         await message.answer("Эта функция доступна только супер-администратору.")
         await state.clear()
