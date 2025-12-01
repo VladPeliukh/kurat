@@ -211,7 +211,15 @@ class CuratorCalendarKeyboard:
                 buttons: list[InlineKeyboardButton] = []
                 for day in week:
                     if day == 0:
-                        buttons.append(cls._noop_button(target, year, month, " "))
+                        buttons.append(
+                            cls._noop_button(
+                                target,
+                                year,
+                                month,
+                                " ",
+                                callback_factory=callback_factory,
+                            )
+                        )
                     else:
                         buttons.append(
                             InlineKeyboardButton(
