@@ -361,11 +361,13 @@ async def _promote_user_to_curator(
     return link
 
 
-@router.message(F.text.func(lambda text: text and text.strip().lower() == "стать куратором"))
+@router.message(F.text.func(lambda text: text is not None and text.strip() == "Стать куратором"))
 async def promote_by_message(message: Message) -> None:
-    if message.chat.type in {"group", "supergroup"}:
-        if Config.PRIMARY_GROUP_ID and message.chat.id != Config.PRIMARY_GROUP_ID:
+    if Config.PRIMARY_GROUP_ID:
+        if message.chat.id != Config.PRIMARY_GROUP_ID:
             return
+    elif message.chat.type not in {"group", "supergroup"}:
+        return
 
     svc = CuratorService(message.bot)
 
