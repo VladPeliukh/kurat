@@ -480,7 +480,7 @@ async def promote_by_plus_sign(message: Message) -> None:
         _delete_group_message(message)
 
 
-@router.message(Command('curator'))
+@router.message(Command('menu'))
 async def show_curator_menu(message: Message) -> None:
     if not _is_private_chat(message):
         return

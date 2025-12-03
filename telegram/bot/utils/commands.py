@@ -8,7 +8,7 @@ from ..services import Services
 
 CURATOR_COMMANDS: list[BotCommand] = [
     BotCommand(command="/invite", description="Моя пригласительная ссылка"),
-    BotCommand(command="/curator", description="Меню куратора"),
+    BotCommand(command="/menu", description="Меню куратора"),
     BotCommand(command="/static", description="Статистика за всё время"),
 ]
 ADMIN_COMMANDS: list[BotCommand] = [
