@@ -1,3 +1,4 @@
+from contextlib import suppress
 from datetime import date, datetime, time, timedelta, timezone
 
 from aiogram import F, Router
@@ -668,6 +669,12 @@ async def promote_admin(message: Message, state: FSMContext) -> None:
         full_name=record.get("full_name"),
         level=1,
     )
+
+    with suppress(Exception):
+        await message.bot.send_message(
+            curator_id,
+            "Вы назначены администратором. Вам доступна команда /admin.",
+        )
 
     await message.answer(
         "Куратор назначен администратором.",
