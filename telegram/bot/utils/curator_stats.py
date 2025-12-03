@@ -224,7 +224,7 @@ async def prepare_all_curators_snapshot(
         return None
 
     csv_bytes = build_simple_table_csv(ALL_CURATORS_HEADERS, rows)
-    filename = "users_snapshot.csv"
+    filename =f"users_snapshot_{datetime.now(MOSCOW_TZ).strftime('%d%m%Y')}.csv"
     if start or end:
         start_suffix = start.strftime("%Y%m%d") if start else "all"
         end_suffix = end.strftime("%Y%m%d") if end else "all"
@@ -233,6 +233,6 @@ async def prepare_all_curators_snapshot(
     if start or end:
         caption = "Сводка пользователей за выбранный период."
     else:
-        caption = "Сводка всех пользователей."
+        caption = f"Сводка всех пользователей. {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y')}"
     return document, caption
 
