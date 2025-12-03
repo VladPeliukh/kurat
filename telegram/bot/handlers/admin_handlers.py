@@ -1,3 +1,4 @@
+from contextlib import suppress
 from datetime import date, datetime, time, timedelta, timezone
 
 from aiogram import F, Router
