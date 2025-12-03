@@ -7,12 +7,12 @@ from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefaul
 from ..services import Services
 
 CURATOR_COMMANDS: list[BotCommand] = [
-    BotCommand(command="/invite", description="Моя пригласительная ссылка"),
-    BotCommand(command="/curator", description="Меню куратора"),
-    BotCommand(command="/static", description="Статистика за всё время"),
+    BotCommand(command="invite", description="Моя пригласительная ссылка"),
+    BotCommand(command="menu", description="Меню куратора"),
+    BotCommand(command="static", description="Статистика за всё время"),
 ]
 ADMIN_COMMANDS: list[BotCommand] = [
-    BotCommand(command="/admin", description="Меню администратора"),
+    BotCommand(command="admin", description="Меню администратора"),
     *CURATOR_COMMANDS,
 ]
 
