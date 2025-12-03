@@ -669,6 +669,12 @@ async def promote_admin(message: Message, state: FSMContext) -> None:
         level=1,
     )
 
+    with suppress(Exception):
+        await message.bot.send_message(
+            curator_id,
+            "Вы назначены администратором. Вам доступна команда /admin.",
+        )
+
     await message.answer(
         "Куратор назначен администратором.",
         reply_markup=AdminKeyboards.back_to_admin_menu(),
