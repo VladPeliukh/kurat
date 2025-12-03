@@ -34,7 +34,7 @@ from ..utils.curator_stats import (
 )
 from ..utils.captcha import NumberCaptcha
 from ..utils.csv_export import build_simple_table_csv
-from ..utils.commands import CURATOR_COMMANDS
+from ..utils.commands import ADMIN_COMMANDS, CURATOR_COMMANDS
 from ..utils.helpers import build_deeplink
 from ..states.curator_states import CuratorStatsSelection
 
@@ -327,6 +327,23 @@ async def _ensure_inviter_record(
     await svc.ensure_curator_record(inviter_id, username, full_name)
 
 
+async def _set_curator_commands(bot: Bot, user_id: int) -> None:
+    admin_service = AdminService()
+    try:
+        if await admin_service.is_admin(user_id):
+            await bot.set_my_commands(
+                ADMIN_COMMANDS,
+                scope=BotCommandScopeChat(chat_id=user_id),
+            )
+            return
+        await bot.set_my_commands(
+            CURATOR_COMMANDS,
+            scope=BotCommandScopeChat(chat_id=user_id),
+        )
+    except Exception:
+        pass
+
+
 async def _promote_user_to_curator(
     svc: CuratorService,
     bot: Bot,
@@ -348,13 +365,7 @@ async def _promote_user_to_curator(
         source_link=source_link,
         is_group_member=is_group_member,
     )
-    try:
-        await bot.set_my_commands(
-            CURATOR_COMMANDS,
-            scope=BotCommandScopeChat(chat_id=user_id),
-        )
-    except Exception:
-        pass
+    await _set_curator_commands(bot, user_id)
     if inviter_id:
         safe_name = html.escape(full_name or "")
         try:
@@ -374,6 +385,16 @@ def _is_primary_group(message: Message) -> bool:
     if Config.PRIMARY_GROUP_ID:
         return message.chat.id == Config.PRIMARY_GROUP_ID
     return message.chat.type in {"group", "supergroup"}
+
+
+def _delete_group_message(message: Message) -> None:
+    if not _is_primary_group(message):
+        return
+
+    with suppress(Exception):
+        asyncio.create_task(
+            message.bot.delete_message(message.chat.id, message.message_id)
+        )
 
 
 def _schedule_group_message_deletion(message: Message) -> None:
@@ -432,34 +453,45 @@ async def _promote_by_group_trigger(
     )
 
 
-@router.message(F.text.func(lambda text: text is not None and text.strip() == "Стать куратором"))
-async def promote_by_message(message: Message) -> None:
-    inviter_id = Config.SUPER_ADMIN
-    if inviter_id is None:
-        await _answer_with_group_timeout(
-            message, "Функция временно недоступна: не задан супер-администратор."
-        )
-        return
-
-    await _promote_by_group_trigger(
-        message,
-        inviter_id=inviter_id,
-        source_link="super_admin_invite",
-        require_open_invite=True,
+@router.message(
+    F.text.func(
+        lambda text: text is not None
+        and text.strip().casefold() == "стать куратором"
     )
+)
+async def promote_by_message(message: Message) -> None:
+    try:
+        inviter_id = Config.SUPER_ADMIN
+        if inviter_id is None:
+            await _answer_with_group_timeout(
+                message, "Функция временно недоступна: не задан супер-администратор."
+            )
+            return
+
+        await _promote_by_group_trigger(
+            message,
+            inviter_id=inviter_id,
+            source_link="super_admin_invite",
+            require_open_invite=True,
+        )
+    finally:
+        _delete_group_message(message)
 
 
 @router.message(F.text.func(lambda text: text is not None and text.strip() == "+"))
 async def promote_by_plus_sign(message: Message) -> None:
-    await _promote_by_group_trigger(
-        message,
-        inviter_id=None,
-        source_link="self_plus_invite",
-        require_open_invite=False,
-    )
+    try:
+        await _promote_by_group_trigger(
+            message,
+            inviter_id=None,
+            source_link="self_plus_invite",
+            require_open_invite=False,
+        )
+    finally:
+        _delete_group_message(message)
 
 
-@router.message(Command('curator'))
+@router.message(Command('menu'))
 async def show_curator_menu(message: Message) -> None:
     if not _is_private_chat(message):
         return
@@ -1254,13 +1286,7 @@ async def approve_curator(call: CallbackQuery):
         await call.message.edit_text(call.message.html_text + "\n\n✅ Принято")
     except Exception:
         pass
-    try:
-        await call.bot.set_my_commands(
-            CURATOR_COMMANDS,
-            scope=BotCommandScopeChat(chat_id=partner_id),
-        )
-    except Exception:
-        pass
+    await _set_curator_commands(call.bot, partner_id)
     try:
         await call.bot.send_message(
             partner_id,

@@ -7,12 +7,12 @@ from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefaul
 from ..services import Services
 
 CURATOR_COMMANDS: list[BotCommand] = [
-    BotCommand(command="/invite", description="Моя пригласительная ссылка"),
-    BotCommand(command="/curator", description="Меню куратора"),
-    BotCommand(command="/static", description="Статистика за всё время"),
+    BotCommand(command="invite", description="Моя пригласительная ссылка"),
+    BotCommand(command="menu", description="Меню куратора"),
+    BotCommand(command="static", description="Статистика за всё время"),
 ]
 ADMIN_COMMANDS: list[BotCommand] = [
-    BotCommand(command="/admin", description="Меню администратора"),
+    BotCommand(command="admin", description="Меню администратора"),
     *CURATOR_COMMANDS,
 ]
 
@@ -49,6 +49,8 @@ async def setup_commands(bot: Bot, services: Services) -> None:
 
     curator_ids = await services.curator.list_curator_ids()
     for curator_id in curator_ids:
+        if curator_id in admin_ids:
+            continue
         try:
             await bot.set_my_commands(
                 CURATOR_COMMANDS,
