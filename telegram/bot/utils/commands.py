@@ -49,6 +49,8 @@ async def setup_commands(bot: Bot, services: Services) -> None:
 
     curator_ids = await services.curator.list_curator_ids()
     for curator_id in curator_ids:
+        if curator_id in admin_ids:
+            continue
         try:
             await bot.set_my_commands(
                 CURATOR_COMMANDS,

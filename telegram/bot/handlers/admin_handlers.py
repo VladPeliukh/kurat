@@ -4,7 +4,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BotCommandScopeChat, CallbackQuery, Message
 
 from ..keyboards import AdminKeyboards
 from ..keyboards.calendar import (
@@ -21,6 +21,7 @@ from ..states.admin_states import (
     AdminPromoteAdmin,
     AdminStatsSelection,
 )
+from ..utils.commands import ADMIN_COMMANDS
 from ..utils.curator_stats import (
     MOSCOW_TZ,
     prepare_all_curators_snapshot,
@@ -674,6 +675,10 @@ async def promote_admin(message: Message, state: FSMContext) -> None:
         await message.bot.send_message(
             curator_id,
             "Вы назначены администратором. Вам доступна команда /admin.",
+        )
+        await message.bot.set_my_commands(
+            ADMIN_COMMANDS,
+            scope=BotCommandScopeChat(chat_id=curator_id),
         )
 
     await message.answer(
