@@ -136,7 +136,7 @@ async def prepare_curator_info_report(
         if inviter_id:
             inviter_display = f"{inviter_display} (ID {inviter_id})" if inviter_display else f"ID {inviter_id}"
     name_label = record.get("full_name") or f"ID {curator_id}"
-    caption_label = owner_label or "Информация о кураторе"
+    caption_label = owner_label or "Информация о пользователе"
     header_line = f"{caption_label} {name_label}:"
     values = [
         record.get("user_id") or curator_id,
@@ -231,8 +231,8 @@ async def prepare_all_curators_snapshot(
         filename = f"curators_snapshot_{start_suffix}_{end_suffix}.csv"
     document = BufferedInputFile(csv_bytes, filename=filename)
     if start or end:
-        caption = "Сводка кураторов за выбранный период."
+        caption = "Сводка пользователей за выбранный период."
     else:
-        caption = "Сводка всех кураторов."
+        caption = "Сводка всех пользователей."
     return document, caption
 

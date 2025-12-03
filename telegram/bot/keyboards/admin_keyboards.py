@@ -11,11 +11,11 @@ class AdminKeyboards:
     ) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.button(
-            text="Информация о кураторе",
+            text="Информация о пользователе",
             callback_data="adm_menu:curator_info",
         )
         builder.button(
-            text="Посмотреть всю статистику",
+            text="Посмотреть всю статистику за период",
             callback_data="adm_menu:all_stats",
         )
         builder.button(
@@ -24,11 +24,11 @@ class AdminKeyboards:
         )
         if is_super_admin:
             builder.button(
-                text="Рассылка",
+                text="Рассылка всем пользователям",
                 callback_data="adm_menu:broadcast",
             )
             builder.button(
-                text="Назначить админа",
+                text="Назначить администратора",
                 callback_data="adm_menu:promote_admin",
             )
             if open_invite_enabled is not None:
@@ -55,7 +55,7 @@ class AdminKeyboards:
     def curator_info_actions(curator_id: int) -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.button(
-            text="Посмотреть статистику этого куратора",
+            text="Посмотреть статистику этого пользователя",
             callback_data=f"adm_curator_stats:{curator_id}",
         )
         builder.button(

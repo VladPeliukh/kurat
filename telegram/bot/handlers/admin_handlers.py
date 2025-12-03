@@ -257,7 +257,7 @@ async def prompt_broadcast(call: CallbackQuery, state: FSMContext) -> None:
         return
     await state.set_state(AdminBroadcast.waiting_message)
     await call.message.answer(
-        "Отправьте сообщение, которое нужно разослать всем кураторам.",
+        "Отправьте сообщение, которое нужно разослать всем пользователям.",
         reply_markup=AdminKeyboards.back_to_admin_menu(),
     )
     await call.answer()
@@ -270,7 +270,7 @@ async def prompt_promote_admin(call: CallbackQuery, state: FSMContext) -> None:
         return
     await state.set_state(AdminPromoteAdmin.waiting_curator_id)
     await call.message.answer(
-        "Введите ID куратора, которого нужно сделать администратором.",
+        "Введите ID пользователя, которого нужно сделать администратором.",
         reply_markup=AdminKeyboards.back_to_admin_menu(),
     )
     await call.answer()
@@ -283,7 +283,7 @@ async def prompt_curator_info(call: CallbackQuery, state: FSMContext) -> None:
         return
     await state.set_state(AdminCuratorInfo.waiting_curator_id)
     await call.message.answer(
-        "Введите ID куратора, информацию о котором хотите получить.",
+        "Введите ID пользователя, информацию о котором хотите получить.",
         reply_markup=AdminKeyboards.back_to_admin_menu(),
     )
     await call.answer()
@@ -324,7 +324,7 @@ async def prompt_all_curators_stats_range(call: CallbackQuery, state: FSMContext
     await _store_selected_date(state, "adm_start", None)
     await _store_selected_date(state, "adm_end", None)
     await _store_calendar_state(state, "adm_end", _initial_calendar_state())
-    prompt = "Выберите начальную дату периода для статистики по всем кураторам:"
+    prompt = "Выберите начальную дату периода для статистики по всем пользователям:"
     markup = CuratorCalendarKeyboard.build(
         start_state, target="adm_start", callback_factory=AdminCalendarCallback
     )
@@ -527,18 +527,18 @@ async def send_curator_info(message: Message, state: FSMContext) -> None:
     try:
         curator_id = int(message.text.strip())
     except (TypeError, ValueError):
-        await message.answer("Пожалуйста, отправьте корректный числовой ID куратора.")
+        await message.answer("Пожалуйста, отправьте корректный числовой ID пользователя.")
         return
 
     svc = CuratorService(message.bot)
     if not await svc.is_curator(curator_id):
-        await message.answer("Куратор с таким ID не найден.", reply_markup=AdminKeyboards.back_to_admin_menu())
+        await message.answer("Пользователь с таким ID не найден.", reply_markup=AdminKeyboards.back_to_admin_menu())
         await state.clear()
         return
 
     result = await prepare_curator_info_report(svc, curator_id)
     if result is None:
-        await message.answer("Не удалось найти данные по этому куратору.", reply_markup=AdminKeyboards.back_to_admin_menu())
+        await message.answer("Не удалось найти данные по этому пользователю.", reply_markup=AdminKeyboards.back_to_admin_menu())
         await state.clear()
         return
 
@@ -559,23 +559,23 @@ async def send_curator_stats_from_info(call: CallbackQuery) -> None:
     try:
         curator_id = int(call.data.split(":", 1)[1])
     except (ValueError, IndexError):
-        await call.answer("Не удалось определить куратора.", show_alert=True)
+        await call.answer("Не удалось определить пользователя.", show_alert=True)
         return
 
     svc = CuratorService(call.bot)
     if not await svc.is_curator(curator_id):
-        await call.answer("Куратор с таким ID не найден.", show_alert=True)
+        await call.answer("Пользователь с таким ID не найден.", show_alert=True)
         return
 
     record = await svc.get_curator_record(curator_id) or {}
-    owner_label = "Статистика куратора"
+    owner_label = "Статистика пользователя"
     if record.get("full_name"):
         owner_label = f"{owner_label} {record['full_name']}"
 
     result = await prepare_curator_all_time_stats(svc, curator_id, owner_label=owner_label)
     if result is None:
         await call.message.answer(
-            "У этого куратора пока нет приглашенных пользователей.",
+            "У этого пользователя пока нет приглашенных пользователей.",
             reply_markup=AdminKeyboards.back_to_admin_menu(),
         )
         await call.answer()
@@ -603,7 +603,7 @@ async def broadcast_message(message: Message, state: FSMContext) -> None:
     curator_ids = await svc.list_curator_ids()
     if not curator_ids:
         await message.answer(
-            "В базе нет зарегистрированных кураторов для рассылки.",
+            "В базе нет зарегистрированных пользователей для рассылки.",
             reply_markup=AdminKeyboards.back_to_admin_menu(),
         )
         await state.clear()
@@ -642,13 +642,13 @@ async def promote_admin(message: Message, state: FSMContext) -> None:
     try:
         curator_id = int(message.text.strip())
     except (TypeError, ValueError):
-        await message.answer("Пожалуйста, отправьте корректный числовой ID куратора.")
+        await message.answer("Пожалуйста, отправьте корректный числовой ID пользователя.")
         return
 
     curator_service = CuratorService(message.bot)
     if not await curator_service.is_curator(curator_id):
         await message.answer(
-            "Куратор с таким ID не найден.",
+            "Пользователь с таким ID не найден.",
             reply_markup=AdminKeyboards.back_to_admin_menu(),
         )
         await state.clear()
@@ -657,7 +657,7 @@ async def promote_admin(message: Message, state: FSMContext) -> None:
     admin_service = AdminService()
     if await admin_service.is_admin(curator_id):
         await message.answer(
-            "Этот куратор уже является администратором.",
+            "Этот пользователь уже является администратором.",
             reply_markup=AdminKeyboards.back_to_admin_menu(),
         )
         await state.clear()
@@ -682,7 +682,7 @@ async def promote_admin(message: Message, state: FSMContext) -> None:
         )
 
     await message.answer(
-        "Куратор назначен администратором.",
+        "Пользователь назначен администратором.",
         reply_markup=AdminKeyboards.back_to_admin_menu(),
     )
     await state.clear()

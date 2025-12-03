@@ -26,10 +26,10 @@ class CuratorKeyboards:
     def main_menu() -> InlineKeyboardMarkup:
         builder = InlineKeyboardBuilder()
         builder.button(text="Ваша ссылка", callback_data="cur_menu:invite")
-        builder.button(text="Приглашенные пользователи", callback_data="cur_menu:partners")
+        builder.button(text="Написать сообщение приглашенному пользователю", callback_data="cur_menu:partners")
         builder.button(text="Посмотреть свою статистику", callback_data="cur_menu:stats")
         builder.button(
-            text="Посмотреть статистику за все время",
+            text="Посмотреть свою статистику за все время",
             callback_data="cur_menu:stats_all",
         )
         builder.adjust(1)
@@ -41,7 +41,7 @@ class CuratorKeyboards:
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="Ваше меню куратора", callback_data="cur_menu:open"
+                        text="Меню", callback_data="cur_menu:open"
                     )
                 ]
             ]
@@ -51,7 +51,7 @@ class CuratorKeyboards:
     def back_to_menu() -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="В меню куратора", callback_data="cur_menu:open")]
+                [InlineKeyboardButton(text="В меню", callback_data="cur_menu:open")]
             ]
         )
 

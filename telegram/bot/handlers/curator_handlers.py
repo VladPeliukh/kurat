@@ -63,14 +63,14 @@ async def _has_curator_access(bot: Bot, user_id: int, svc: CuratorService | None
 async def _require_curator_or_admin_message(message: Message, svc: CuratorService) -> bool:
     if await _has_curator_access(message.bot, message.from_user.id, svc):
         return True
-    await message.answer("Эта команда доступна только кураторам и администраторам.")
+    await message.answer("Эта команда доступна только зарегестрированным пользователям и администраторам.")
     return False
 
 
 async def _require_curator_or_admin_callback(call: CallbackQuery, svc: CuratorService) -> bool:
     if await _has_curator_access(call.bot, call.from_user.id, svc):
         return True
-    await call.answer("Эта функция доступна только кураторам и администраторам.", show_alert=True)
+    await call.answer("Эта функция доступна только зарегестрированным пользователям и администраторам.", show_alert=True)
     return False
 
 
@@ -282,7 +282,7 @@ async def _notify_curator(
     try:
         await bot.send_message(
             curator_id,
-            f"Заявка от <a href='tg://user?id={partner_id}'>{safe_name}</a> стать куратором.",
+            f"Заявка от <a href='tg://user?id={partner_id}'>{safe_name}</a>.",
             reply_markup=keyboard,
         )
     except Exception:
@@ -307,7 +307,7 @@ async def _finalize_request(
         source_link=source_link,
         payload=payload,
     )
-    await message.answer("Заявка отправлена вашему куратору. Ожидайте решения.")
+    await message.answer("Заявка отправлена пользователю, который вас пригласил. Ожидайте решения.")
 
 
 async def _ensure_inviter_record(
@@ -372,7 +372,7 @@ async def _promote_user_to_curator(
             await bot.send_message(
                 inviter_id,
                 (
-                    "Пользователь по вашей ссылке стал куратором: "
+                    "Пользователь по вашей ссылке зарегестрировался: "
                     f"<a href='tg://user?id={user_id}'>{safe_name}</a>."
                 ),
             )
@@ -429,7 +429,7 @@ async def _promote_by_group_trigger(
         return
 
     if await svc.is_curator(message.from_user.id):
-        await _answer_with_group_timeout(message, "Вы уже являетесь куратором.")
+        await _answer_with_group_timeout(message, "Вы уже являетесь зарегестрированным пользователем.")
         return
 
     link = await _promote_user_to_curator(
@@ -446,8 +446,8 @@ async def _promote_by_group_trigger(
     await _answer_with_group_timeout(
         message,
         (
-            "Теперь вы куратор. Ваша персональная ссылка:\n"
-            f"{link}\n\nМеню куратора доступно в личном чате с ботом."
+            "Теперь вы зарегестрированы. Ваша персональная ссылка:\n"
+            f"{link}\n\nМеню доступно в личном чате с ботом."
         ),
         disable_web_page_preview=True,
     )
@@ -456,7 +456,7 @@ async def _promote_by_group_trigger(
 @router.message(
     F.text.func(
         lambda text: text is not None
-        and text.strip().casefold() == "стать куратором"
+        and text.strip().casefold() == "рег"
     )
 )
 async def promote_by_message(message: Message) -> None:
@@ -500,7 +500,7 @@ async def show_curator_menu(message: Message) -> None:
         return
     _pending_curator_messages.pop(message.from_user.id, None)
     await message.answer(
-        "МЕНЮ КУРАТОРА",
+        "Основное меню",
         reply_markup=CuratorKeyboards.main_menu(),
     )
 
@@ -517,7 +517,7 @@ async def curator_menu_open(call: CallbackQuery) -> None:
         pass
     try:
         await call.message.answer(
-            "МЕНЮ КУРАТОРА",
+            "Основное мню",
             reply_markup=CuratorKeyboards.main_menu(),
         )
     except Exception:
@@ -533,9 +533,9 @@ async def curator_menu_back(call: CallbackQuery) -> None:
     _pending_curator_messages.pop(call.from_user.id, None)
     keyboard = CuratorKeyboards.main_menu()
     try:
-        await call.message.edit_text("МЕНЮ КУРАТОРА", reply_markup=keyboard)
+        await call.message.edit_text("Основное меню", reply_markup=keyboard)
     except Exception:
-        await call.message.answer("МЕНЮ КУРАТОРА", reply_markup=keyboard)
+        await call.message.answer("Основное меню", reply_markup=keyboard)
     await call.answer()
 
 
@@ -824,7 +824,7 @@ async def curator_stats_calendar_action(
         await state.clear()
         try:
             await call.message.edit_text(
-                "Статистика сформирована. Нажмите «Посмотреть свою статистику»,"
+                "Статистика сформирована. Нажмите «Посмотреть свою статистику...»,"
                 " чтобы выбрать другой период.",
             )
         except Exception:
@@ -968,7 +968,7 @@ async def start_with_payload(message: Message) -> None:
             source_link=source_link,
         )
         await message.answer(
-            f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+            f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
             disable_web_page_preview=True,
         )
         return
@@ -986,7 +986,7 @@ async def start_with_payload(message: Message) -> None:
         source_link=source_link,
     )
     await message.answer(
-        f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+        f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
         disable_web_page_preview=True,
     )
     return
@@ -1020,7 +1020,7 @@ async def start_without_payload(message: Message) -> None:
             inviter_id=None,
         )
         await message.answer(
-            f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+            f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
             disable_web_page_preview=True,
         )
         return
@@ -1042,7 +1042,7 @@ async def start_without_payload(message: Message) -> None:
         inviter_id=None,
     )
     await message.answer(
-        f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+        f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
         disable_web_page_preview=True,
     )
 
@@ -1081,13 +1081,13 @@ async def request_curation(call: CallbackQuery):
             )
             try:
                 await call.message.answer(
-                    f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+                    f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
                     disable_web_page_preview=True,
                 )
             except Exception:
                 pass
         await svc.register_partner(curator_id, call.from_user.id)
-        await call.answer("Вы уже являетесь куратором.", show_alert=True)
+        await call.answer("Вы уже являетесь зарегестрированным пользователем.", show_alert=True)
         return
     if not await svc.has_passed_captcha(call.from_user.id):
         await call.answer()
@@ -1106,13 +1106,13 @@ async def request_curation(call: CallbackQuery):
     await call.answer()
     try:
         await call.message.edit_text(
-            f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+            f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
             disable_web_page_preview=True,
         )
     except Exception:
         try:
             await call.message.answer(
-                f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+                f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
                 disable_web_page_preview=True,
             )
         except Exception:
@@ -1183,7 +1183,7 @@ async def verify_captcha(call: CallbackQuery) -> None:
         source_link=(source_info or {}).get("source_link"),
     )
     await call.message.answer(
-        f"Теперь вы куратор. Ваша персональная ссылка:\n{link}",
+        f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
         disable_web_page_preview=True,
     )
 
@@ -1240,9 +1240,9 @@ async def handle_curator_outgoing_message(message: Message) -> None:
         _pending_curator_messages.pop(message.from_user.id, None)
         await message.answer("Этот пользователь больше не связан с вами.")
         return
-    curator_name = html.escape(message.from_user.full_name or "Куратор")
+    curator_name = html.escape(message.from_user.full_name or "Зарегестрированны пользователь")
     text = html.escape(message.text)
-    body = f"Сообщение от вашего куратора {curator_name}:\n\n{text}"
+    body = f"Сообщение от пользователя, который вас пригласил {curator_name}:\n\n{text}"
     try:
         await message.bot.send_message(partner_id, body)
     except Exception:
@@ -1290,7 +1290,7 @@ async def approve_curator(call: CallbackQuery):
     try:
         await call.bot.send_message(
             partner_id,
-            f"Ваша заявка одобрена! Теперь вы куратор.\nВаша ссылка:\n{new_link}",
+            f"Ваша заявка одобрена! Теперь вы зарегестрированы.\nВаша ссылка:\n{new_link}",
             disable_web_page_preview=True,
         )
     except Exception:
