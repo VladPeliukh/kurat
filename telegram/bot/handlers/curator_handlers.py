@@ -376,6 +376,16 @@ def _is_primary_group(message: Message) -> bool:
     return message.chat.type in {"group", "supergroup"}
 
 
+def _delete_group_message(message: Message) -> None:
+    if not _is_primary_group(message):
+        return
+
+    with suppress(Exception):
+        asyncio.create_task(
+            message.bot.delete_message(message.chat.id, message.message_id)
+        )
+
+
 def _schedule_group_message_deletion(message: Message) -> None:
     async def _delete_later() -> None:
         await asyncio.sleep(_GROUP_MESSAGE_LIFETIME_SECONDS)
@@ -432,31 +442,42 @@ async def _promote_by_group_trigger(
     )
 
 
-@router.message(F.text.func(lambda text: text is not None and text.strip() == "Стать куратором"))
-async def promote_by_message(message: Message) -> None:
-    inviter_id = Config.SUPER_ADMIN
-    if inviter_id is None:
-        await _answer_with_group_timeout(
-            message, "Функция временно недоступна: не задан супер-администратор."
-        )
-        return
-
-    await _promote_by_group_trigger(
-        message,
-        inviter_id=inviter_id,
-        source_link="super_admin_invite",
-        require_open_invite=True,
+@router.message(
+    F.text.func(
+        lambda text: text is not None
+        and text.strip().casefold() == "стать куратором"
     )
+)
+async def promote_by_message(message: Message) -> None:
+    try:
+        inviter_id = Config.SUPER_ADMIN
+        if inviter_id is None:
+            await _answer_with_group_timeout(
+                message, "Функция временно недоступна: не задан супер-администратор."
+            )
+            return
+
+        await _promote_by_group_trigger(
+            message,
+            inviter_id=inviter_id,
+            source_link="super_admin_invite",
+            require_open_invite=True,
+        )
+    finally:
+        _delete_group_message(message)
 
 
 @router.message(F.text.func(lambda text: text is not None and text.strip() == "+"))
 async def promote_by_plus_sign(message: Message) -> None:
-    await _promote_by_group_trigger(
-        message,
-        inviter_id=None,
-        source_link="self_plus_invite",
-        require_open_invite=False,
-    )
+    try:
+        await _promote_by_group_trigger(
+            message,
+            inviter_id=None,
+            source_link="self_plus_invite",
+            require_open_invite=False,
+        )
+    finally:
+        _delete_group_message(message)
 
 
 @router.message(Command('curator'))
