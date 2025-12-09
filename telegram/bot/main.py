@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 from functools import partial
 
 import asyncpg
@@ -17,6 +18,27 @@ from .utils.commands import setup_commands, delete_commands
 from .middlewares import setup_middlewares
 from .utils.loggers import main_bot as logger
 from .utils.curator_stats import prepare_all_curators_snapshot
+
+_NAVIGATION_MESSAGE_ID = 6523
+
+
+async def _ensure_navigation_pin(bot: Bot) -> None:
+    if not Config.PRIMARY_GROUP_ID:
+        return
+
+    try:
+        chat = await bot.get_chat(Config.PRIMARY_GROUP_ID)
+    except Exception:
+        return
+
+    pinned = getattr(chat, "pinned_message", None)
+    if pinned and pinned.message_id == _NAVIGATION_MESSAGE_ID:
+        return
+
+    with suppress(Exception):
+        await bot.pin_chat_message(
+            Config.PRIMARY_GROUP_ID, _NAVIGATION_MESSAGE_ID, disable_notification=True
+        )
 
 
 async def super_admin_report_worker(bot: Bot, services: Services) -> None:
@@ -62,6 +84,8 @@ async def start_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
 
         # Регистрация обработчиков
         register_handlers(dp)
+
+        await _ensure_navigation_pin(bot)
 
         _, super_admins = await services.admin.list_admins()
 
