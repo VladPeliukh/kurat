@@ -16,6 +16,14 @@ ADMIN_COMMANDS: list[BotCommand] = [
     *CURATOR_COMMANDS,
 ]
 
+WELCOME_MESSAGE = (
+    "Привет!\n\n"
+    "Спасибо, что вы перешли по ссылке.\n"
+    "Нажмите «Старт», решите простую капчу —\n"
+    "и добро пожаловать в гостевой чат\n"
+    "с интересными людьми. 👇"
+)
+
 
 def _extract_admin_ids(admins: list) -> set[int]:
     ids: set[int] = set()
@@ -30,6 +38,12 @@ def _extract_admin_ids(admins: list) -> set[int]:
 
 
 async def setup_commands(bot: Bot, services: Services) -> None:
+    try:
+        await bot.set_my_description(WELCOME_MESSAGE)
+        await bot.set_my_short_description("Привет!")
+    except Exception as error:  # pragma: no cover - fallback logging
+        print(error)
+
     try:
         await bot.set_my_commands([], scope=BotCommandScopeDefault())
     except Exception as error:  # pragma: no cover - fallback logging

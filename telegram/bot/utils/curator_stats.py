@@ -102,7 +102,7 @@ async def prepare_curator_all_time_stats(
     if not rows:
         return None
     csv_bytes = build_simple_table_csv(CURATOR_STATS_HEADERS, rows)
-    filename = f"curator_stats_{curator_id}_all_time.csv"
+    filename = f"user_stats_{curator_id}_all_time.csv"
     document = BufferedInputFile(csv_bytes, filename=filename)
     caption = f"{owner_label} приглашенных пользователей за всё время."
     return document, caption
@@ -224,11 +224,11 @@ async def prepare_all_curators_snapshot(
         return None
 
     csv_bytes = build_simple_table_csv(ALL_CURATORS_HEADERS, rows)
-    filename = "curators_snapshot.csv"
+    filename = f"users_snapshot_{datetime.now(MOSCOW_TZ).strftime('%Y%m%d')}.csv"
     if start or end:
         start_suffix = start.strftime("%Y%m%d") if start else "all"
         end_suffix = end.strftime("%Y%m%d") if end else "all"
-        filename = f"curators_snapshot_{start_suffix}_{end_suffix}.csv"
+        filename = f"users_snapshot_{start_suffix}_{end_suffix}.csv"
     document = BufferedInputFile(csv_bytes, filename=filename)
     if start or end:
         caption = "Сводка пользователей за выбранный период."

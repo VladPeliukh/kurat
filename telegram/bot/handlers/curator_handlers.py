@@ -812,7 +812,7 @@ async def curator_stats_calendar_action(
             start_text = start_date.strftime("%d.%m.%Y")
             end_text = selected_date.strftime("%d.%m.%Y")
             filename = (
-                f"curator_stats_{call.from_user.id}_{start_date.strftime('%Y%m%d')}"
+                f"user_stats_{call.from_user.id}_{start_date.strftime('%Y%m%d')}"
                 f"_{selected_date.strftime('%Y%m%d')}.csv"
             )
             document = BufferedInputFile(csv_bytes, filename=filename)
