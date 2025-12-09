@@ -3,6 +3,7 @@ import html
 import random
 from contextlib import suppress
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 from typing import Callable
 
 from aiogram import Bot, F, Router
@@ -45,6 +46,8 @@ _captcha_generator = NumberCaptcha()
 _pending_curator_messages: dict[int, int] = {}
 _CURATOR_PARTNERS_PAGE_SIZE = 10
 _GROUP_MESSAGE_LIFETIME_SECONDS = 15
+_WELCOME_VIDEO_FILENAME = "вид.mp4"
+_PLUS_INVITE_IMAGE_FILENAME = "img1.jpg"
 
 
 async def _is_admin(user_id: int) -> bool:
@@ -344,6 +347,74 @@ async def _set_curator_commands(bot: Bot, user_id: int) -> None:
         pass
 
 
+async def _resolve_inviter_name(svc: CuratorService, inviter_id: int | None) -> str:
+    if not inviter_id:
+        return "Неизвестно"
+
+    record = await svc.get_curator_record(inviter_id)
+    if record:
+        full_name = (record.get("full_name") or "").strip()
+        username = record.get("username")
+        if full_name:
+            return full_name
+        if username:
+            return f"@{username}"
+
+    try:
+        chat = await svc.bot.get_chat(inviter_id)
+        name_parts = [chat.first_name or "", chat.last_name or ""]
+        full_name = " ".join(part for part in name_parts if part).strip()
+        if full_name:
+            return full_name
+        if chat.username:
+            return f"@{chat.username}"
+    except Exception:
+        pass
+
+    return "Неизвестно"
+
+
+async def _send_welcome_video(bot: Bot, user_id: int, inviter_name: str, invite_link: str) -> None:
+    caption = (
+        "Добро пожаловать в чат СТЭП-БРЭЙФИНГ!\n\n"
+        f"👤 Ваш пригласитель: {inviter_name}\n"
+        f"🔗 Ваша ссылка для приглашения в этот чат: {invite_link}\n\n"
+        "Изучите возможности СТЭП-БРЭЙФИНГ .\n"
+        "Кнопка в закрепе 'НАВИГАЦИЯ'"
+    )
+    video_path = Path(__file__).resolve().parent.parent / "media" / _WELCOME_VIDEO_FILENAME
+
+    try:
+        video_file = BufferedInputFile(video_path.read_bytes(), filename=video_path.name)
+        await bot.send_video(user_id, video_file, caption=caption)
+    except FileNotFoundError:
+        with suppress(Exception):
+            await bot.send_message(user_id, caption)
+    except Exception:
+        with suppress(Exception):
+            await bot.send_message(user_id, caption)
+
+
+async def _send_plus_invite_package(bot: Bot, user_id: int, invite_link: str) -> None:
+    caption = (
+        "Здравствуйте! 🌿\n"
+        "Вы нажали «+» — это значит, вы уже чувствуете: «Здесь — мое».\n\n"
+        f"🔗 Ваша персона. ссылка для приглашения: {invite_link}\n\n"
+        "Остались вопросы? Обратитесь к вашему пригласившему. Он(а) уже ждёт вас и всё расскажет 🙏"
+    )
+    image_path = Path(__file__).resolve().parent.parent / "media" / _PLUS_INVITE_IMAGE_FILENAME
+
+    try:
+        image_file = BufferedInputFile(image_path.read_bytes(), filename=image_path.name)
+        await bot.send_photo(user_id, image_file, caption=caption)
+    except FileNotFoundError:
+        with suppress(Exception):
+            await bot.send_message(user_id, caption)
+    except Exception:
+        with suppress(Exception):
+            await bot.send_message(user_id, caption)
+
+
 async def _promote_user_to_curator(
     svc: CuratorService,
     bot: Bot,
@@ -451,6 +522,9 @@ async def _promote_by_group_trigger(
         ),
         disable_web_page_preview=True,
     )
+
+    if source_link == "self_plus_invite":
+        await _send_plus_invite_package(message.bot, message.from_user.id, link)
 
 
 @router.message(
@@ -971,6 +1045,8 @@ async def start_with_payload(message: Message) -> None:
             f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
             disable_web_page_preview=True,
         )
+        inviter_name = await _resolve_inviter_name(svc, curator_id)
+        await _send_welcome_video(message.bot, message.from_user.id, inviter_name, link)
         return
     if not await svc.has_passed_captcha(message.from_user.id):
         await _send_captcha_challenge(message, message.from_user.id, svc, curator_id)
@@ -989,6 +1065,8 @@ async def start_with_payload(message: Message) -> None:
         f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
         disable_web_page_preview=True,
     )
+    inviter_name = await _resolve_inviter_name(svc, curator_id)
+    await _send_welcome_video(message.bot, message.from_user.id, inviter_name, link)
     return
 
 
@@ -1084,6 +1162,8 @@ async def request_curation(call: CallbackQuery):
                     f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
                     disable_web_page_preview=True,
                 )
+                inviter_name = await _resolve_inviter_name(svc, curator_id)
+                await _send_welcome_video(call.bot, call.from_user.id, inviter_name, link)
             except Exception:
                 pass
         await svc.register_partner(curator_id, call.from_user.id)
@@ -1117,6 +1197,8 @@ async def request_curation(call: CallbackQuery):
             )
         except Exception:
             pass
+    inviter_name = await _resolve_inviter_name(svc, curator_id)
+    await _send_welcome_video(call.bot, call.from_user.id, inviter_name, link)
 
 
 @router.callback_query(F.data.startswith("cur_cap:"))
@@ -1186,6 +1268,8 @@ async def verify_captcha(call: CallbackQuery) -> None:
         f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
         disable_web_page_preview=True,
     )
+    inviter_name = await _resolve_inviter_name(svc, inviter_id)
+    await _send_welcome_video(call.bot, call.from_user.id, inviter_name, link)
 
 
 @router.callback_query(F.data == "cur_msg:cancel")
