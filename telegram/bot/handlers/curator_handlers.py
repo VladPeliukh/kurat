@@ -47,6 +47,7 @@ _pending_curator_messages: dict[int, int] = {}
 _CURATOR_PARTNERS_PAGE_SIZE = 10
 _GROUP_MESSAGE_LIFETIME_SECONDS = 15
 _WELCOME_VIDEO_FILENAME = "вид.mp4"
+_PLUS_INVITE_IMAGE_FILENAME = "img1.jpg"
 
 
 async def _is_admin(user_id: int) -> bool:
@@ -394,6 +395,26 @@ async def _send_welcome_video(bot: Bot, user_id: int, inviter_name: str, invite_
             await bot.send_message(user_id, caption)
 
 
+async def _send_plus_invite_package(bot: Bot, user_id: int, invite_link: str) -> None:
+    caption = (
+        "Здравствуйте! 🌿\n"
+        "Вы нажали «+» — это значит, вы уже чувствуете: «Здесь — мое».\n\n"
+        f"🔗 Ваша персона. ссылка для приглашения: {invite_link}\n\n"
+        "Остались вопросы? Обратитесь к вашему пригласившему. Он(а) уже ждёт вас и всё расскажет 🙏"
+    )
+    image_path = Path(__file__).resolve().parent.parent / "media" / _PLUS_INVITE_IMAGE_FILENAME
+
+    try:
+        image_file = BufferedInputFile(image_path.read_bytes(), filename=image_path.name)
+        await bot.send_photo(user_id, image_file, caption=caption)
+    except FileNotFoundError:
+        with suppress(Exception):
+            await bot.send_message(user_id, caption)
+    except Exception:
+        with suppress(Exception):
+            await bot.send_message(user_id, caption)
+
+
 async def _promote_user_to_curator(
     svc: CuratorService,
     bot: Bot,
@@ -501,6 +522,9 @@ async def _promote_by_group_trigger(
         ),
         disable_web_page_preview=True,
     )
+
+    if source_link == "self_plus_invite":
+        await _send_plus_invite_package(message.bot, message.from_user.id, link)
 
 
 @router.message(
