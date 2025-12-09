@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 from functools import partial
 
 import asyncpg
@@ -7,6 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramNotFound, TelegramBadRequest
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from .config import Config
 from .handlers import register_handlers
@@ -17,6 +19,52 @@ from .utils.commands import setup_commands, delete_commands
 from .middlewares import setup_middlewares
 from .utils.loggers import main_bot as logger
 from .utils.curator_stats import prepare_all_curators_snapshot
+
+_NAVIGATION_URL = "https://t.me/c/2047746194/6523"
+_NAVIGATION_BUTTON_TEXT = "НАВИГАЦИЯ"
+
+
+def _navigation_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=_NAVIGATION_BUTTON_TEXT, url=_NAVIGATION_URL)]
+        ]
+    )
+
+
+async def _ensure_navigation_pin(bot: Bot) -> None:
+    if not Config.PRIMARY_GROUP_ID:
+        return
+
+    try:
+        chat = await bot.get_chat(Config.PRIMARY_GROUP_ID)
+    except Exception:
+        return
+
+    pinned = getattr(chat, "pinned_message", None)
+    if pinned and pinned.reply_markup and pinned.reply_markup.inline_keyboard:
+        for row in pinned.reply_markup.inline_keyboard:
+            for button in row:
+                if (
+                    button.url == _NAVIGATION_URL
+                    and button.text == _NAVIGATION_BUTTON_TEXT
+                ):
+                    return
+
+    try:
+        message = await bot.send_message(
+            Config.PRIMARY_GROUP_ID,
+            " ",
+            reply_markup=_navigation_keyboard(),
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        return
+
+    with suppress(Exception):
+        await bot.pin_chat_message(
+            Config.PRIMARY_GROUP_ID, message.message_id, disable_notification=True
+        )
 
 
 async def super_admin_report_worker(bot: Bot, services: Services) -> None:
@@ -62,6 +110,8 @@ async def start_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
 
         # Регистрация обработчиков
         register_handlers(dp)
+
+        await _ensure_navigation_pin(bot)
 
         _, super_admins = await services.admin.list_admins()
 
