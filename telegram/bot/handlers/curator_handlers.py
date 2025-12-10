@@ -50,7 +50,7 @@ _pending_curator_messages: dict[int, int] = {}
 _CURATOR_PARTNERS_PAGE_SIZE = 10
 _GROUP_MESSAGE_LIFETIME_SECONDS = 15
 _WELCOME_VIDEO_FILENAME = "вид.mp4"
-_PLUS_INVITE_IMAGE_FILENAME = "img1.jpg"
+_PLUS_INVITE_IMAGE_FILENAME = "img1.jpeg"
 
 
 async def _is_admin(user_id: int) -> bool:
@@ -388,8 +388,8 @@ async def _send_welcome_video(bot: Bot, user_id: int, inviter_name: str, invite_
     video_path = Path(__file__).resolve().parent.parent / "media" / _WELCOME_VIDEO_FILENAME
 
     try:
-        video_file = BufferedInputFile(video_path.read_bytes(), filename=video_path.name)
-        await bot.send_video(user_id, video_file, caption=caption, reply_markup=CuratorKeyboards.navigation())
+        # video_file = BufferedInputFile(video_path.read_bytes(), filename=video_path.name)
+        vidd = await bot.send_video(user_id, 'BAACAgIAAxkDAAMQaTmZiYTz_rR4Zse5SmD7-6QOduAAAsSPAAIU18lJGFU7p5fNe6o2BA', caption=caption, reply_markup=CuratorKeyboards.navigation())
     except FileNotFoundError:
         with suppress(Exception):
             await bot.send_message(user_id, caption)
@@ -403,15 +403,16 @@ async def _send_welcome_video(bot: Bot, user_id: int, inviter_name: str, invite_
 async def _send_plus_invite_package(bot: Bot, user_id: int, invite_link: str) -> None:
     caption = (
         "Здравствуйте! 🌿\n"
-        "Вы нажали «+» — это значит, вы уже чувствуете: «Здесь — мое».\n\n"
+        "Вы нажали «+».\n\n"
         f"🔗 Ваша персона. ссылка для приглашения: {invite_link}\n\n"
-        "Остались вопросы? Обратитесь к вашему пригласившему. Он(а) уже ждёт вас и всё расскажет 🙏"
     )
     image_path = Path(__file__).resolve().parent.parent / "media" / _PLUS_INVITE_IMAGE_FILENAME
 
     try:
         image_file = BufferedInputFile(image_path.read_bytes(), filename=image_path.name)
-        await bot.send_photo(user_id, image_file, caption=caption)
+        mess = await bot.send_photo(user_id, 'AgACAgIAAxkDAAMWaTmbji9m9l5D9vgFiUJIaixUcz4AAvYRaxsU18lJiu4PT7wgLD4BAAMCAANtAAM2BA', caption=caption)
+        print()
+
     except FileNotFoundError:
         with suppress(Exception):
             await bot.send_message(user_id, caption)
@@ -1223,17 +1224,7 @@ async def verify_captcha(call: CallbackQuery) -> None:
     curator_id, correct = challenge
     if selected != correct:
         await call.answer("Неверный ответ. Попробуйте ещё раз.", show_alert=True)
-        try:
-            await call.message.edit_caption(
-                "Ответ неверный. Мы отправили новую капчу.", reply_markup=None
-            )
-        except Exception:
-            try:
-                await call.message.edit_text(
-                    "Ответ неверный. Мы отправили новую капчу.", reply_markup=None
-                )
-            except Exception:
-                pass
+        await call.message.delete()
         await _send_captcha_challenge(call.message, call.from_user.id, svc, curator_id)
         return
 
