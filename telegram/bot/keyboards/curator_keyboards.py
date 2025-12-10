@@ -1,6 +1,8 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from ..config import Config
+
 
 class CuratorKeyboards:
     """Фабрика клавиатур, используемых кураторами."""
@@ -135,6 +137,12 @@ class CuratorKeyboards:
             InlineKeyboardButton(text="↩️ Назад", callback_data="cur_menu:back"),
             width=1,
         )
+        return builder.as_markup()
+
+    @staticmethod
+    def navigation() -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="НАВИГАЦИЯ", url=Config.NV_LINK)
         return builder.as_markup()
 
 

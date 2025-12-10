@@ -18,6 +18,8 @@ from aiogram.types import (
 )
 from zoneinfo import ZoneInfo
 
+from aiogram.utils import keyboard
+
 from ..config import Config
 from ..keyboards import CaptchaKeyboards, CuratorKeyboards
 from ..services.admin_service import AdminService
@@ -32,6 +34,7 @@ from ..utils.curator_stats import (
     CURATOR_STATS_HEADERS,
     collect_curator_stats_rows,
     prepare_curator_all_time_stats,
+
 )
 from ..utils.captcha import NumberCaptcha
 from ..utils.csv_export import build_simple_table_csv
@@ -386,13 +389,15 @@ async def _send_welcome_video(bot: Bot, user_id: int, inviter_name: str, invite_
 
     try:
         video_file = BufferedInputFile(video_path.read_bytes(), filename=video_path.name)
-        await bot.send_video(user_id, video_file, caption=caption)
+        await bot.send_video(user_id, video_file, caption=caption, reply_markup=CuratorKeyboards.navigation())
     except FileNotFoundError:
         with suppress(Exception):
             await bot.send_message(user_id, caption)
     except Exception:
         with suppress(Exception):
             await bot.send_message(user_id, caption)
+
+
 
 
 async def _send_plus_invite_package(bot: Bot, user_id: int, invite_link: str) -> None:
@@ -1061,10 +1066,10 @@ async def start_with_payload(message: Message) -> None:
         inviter_id=curator_id,
         source_link=source_link,
     )
-    await message.answer(
-        f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
-        disable_web_page_preview=True,
-    )
+    # await message.answer(
+    #     f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
+    #     disable_web_page_preview=True,
+    # )
     inviter_name = await _resolve_inviter_name(svc, curator_id)
     await _send_welcome_video(message.bot, message.from_user.id, inviter_name, link)
     return
@@ -1111,6 +1116,8 @@ async def start_without_payload(message: Message) -> None:
         )
         return
 
+
+
     link = await _promote_user_to_curator(
         svc,
         message.bot,
@@ -1119,10 +1126,10 @@ async def start_without_payload(message: Message) -> None:
         full_name=message.from_user.full_name,
         inviter_id=None,
     )
-    await message.answer(
-        f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
-        disable_web_page_preview=True,
-    )
+    # await message.answer(
+    #     f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
+    #     disable_web_page_preview=True,
+    # )
 
 
 @router.callback_query(F.data.startswith("cur_req:"))
@@ -1264,10 +1271,10 @@ async def verify_captcha(call: CallbackQuery) -> None:
         inviter_id=inviter_id,
         source_link=(source_info or {}).get("source_link"),
     )
-    await call.message.answer(
-        f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
-        disable_web_page_preview=True,
-    )
+    # await call.message.answer(
+    #     f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
+    #     disable_web_page_preview=True,
+    # )
     inviter_name = await _resolve_inviter_name(svc, inviter_id)
     await _send_welcome_video(call.bot, call.from_user.id, inviter_name, link)
 

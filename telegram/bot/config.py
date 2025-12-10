@@ -19,6 +19,8 @@ class Config:
     DB_HOST = os.getenv("DB_HOST")
     DB_PORT = int(os.getenv("DB_PORT"))
 
+    NV_LINK = os.getenv("NAVIGATION_LINK")
+
     TZ = timezone(timedelta(hours=int(os.getenv("TIME_ZONE"))))
 
     _SUPER_ADMIN_RAW = os.getenv("SUPER_ADMIN")
