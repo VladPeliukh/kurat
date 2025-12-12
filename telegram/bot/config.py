@@ -23,11 +23,17 @@ class Config:
 
     TZ = timezone(timedelta(hours=int(os.getenv("TIME_ZONE"))))
 
-    _SUPER_ADMIN_RAW = os.getenv("SUPER_ADMIN")
+    _SUPER_ADMIN_RAW = os.getenv("SUPER_ADMIN") or ""
     try:
-        SUPER_ADMIN = int(_SUPER_ADMIN_RAW) if _SUPER_ADMIN_RAW else None
+        SUPER_ADMINS = [
+            int(admin_id)
+            for admin_id in _SUPER_ADMIN_RAW.replace(" ", "").split(",")
+            if admin_id
+        ]
     except ValueError:
-        SUPER_ADMIN = None
+        SUPER_ADMINS = []
+    PRIMARY_SUPER_ADMIN = SUPER_ADMINS[0] if SUPER_ADMINS else None
+    SUPER_ADMIN = PRIMARY_SUPER_ADMIN
 
     _PRIMARY_GROUP_RAW = os.getenv("PRIMARY_GROUP_ID")
     try:

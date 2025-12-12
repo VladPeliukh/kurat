@@ -72,20 +72,26 @@ class AdminService:
         super_admins: list[Admin] = [admin for admin in admins if (admin.level or 1) >= 2]
         regular_admins: list[Admin] = [admin for admin in admins if (admin.level or 1) < 2]
 
-        if Config.SUPER_ADMIN:
-            env_super_admin = Admin(
-                user_id=Config.SUPER_ADMIN,
-                username=None,
-                full_name="",
-                level=2,
-            )
-            if env_super_admin.user_id not in {a.user_id for a in super_admins}:
-                super_admins.append(env_super_admin)
+        if Config.SUPER_ADMINS:
+            env_super_admins = [
+                Admin(
+                    user_id=super_admin_id,
+                    username=None,
+                    full_name="",
+                    level=2,
+                )
+                for super_admin_id in Config.SUPER_ADMINS
+            ]
+            existing_ids = {admin.user_id for admin in super_admins}
+            for env_super_admin in env_super_admins:
+                if env_super_admin.user_id not in existing_ids:
+                    super_admins.append(env_super_admin)
+                    existing_ids.add(env_super_admin.user_id)
 
         return regular_admins, super_admins
 
     async def is_admin(self, user_id: int) -> bool:
-        if Config.SUPER_ADMIN and user_id == Config.SUPER_ADMIN:
+        if user_id in Config.SUPER_ADMINS:
             return True
         async with self.pool.acquire() as conn:
             exists = await conn.fetchval(
@@ -95,7 +101,7 @@ class AdminService:
         return bool(exists)
 
     async def is_super_admin(self, user_id: int) -> bool:
-        if Config.SUPER_ADMIN and user_id == Config.SUPER_ADMIN:
+        if user_id in Config.SUPER_ADMINS:
             return True
         async with self.pool.acquire() as conn:
             level = await conn.fetchval(
@@ -136,7 +142,7 @@ class AdminService:
                 user_id,
             )
         if row is None:
-            if Config.SUPER_ADMIN and user_id == Config.SUPER_ADMIN:
+            if user_id in Config.SUPER_ADMINS:
                 return Admin(user_id=user_id, username=None, full_name="", level=2)
             return None
         return Admin(

@@ -541,7 +541,7 @@ async def _promote_by_group_trigger(
 )
 async def promote_by_message(message: Message) -> None:
     try:
-        inviter_id = Config.SUPER_ADMIN
+        inviter_id = Config.PRIMARY_SUPER_ADMIN
         if inviter_id is None:
             await _answer_with_group_timeout(
                 message, "Функция временно недоступна: не задан супер-администратор."
