@@ -58,7 +58,7 @@ async def super_admin_report_worker(bot: Bot, services: Services) -> None:
 
 
 async def send_curators_snapshot(bot: Bot, services: Services) -> None:
-    if not Config.SUPER_ADMIN:
+    if not Config.SUPER_ADMINS:
         return
 
     snapshot = await prepare_all_curators_snapshot(services.curator)
@@ -66,7 +66,8 @@ async def send_curators_snapshot(bot: Bot, services: Services) -> None:
         return
 
     document, caption = snapshot
-    await bot.send_document(Config.SUPER_ADMIN, document=document, caption=caption)
+    for super_admin_id in Config.SUPER_ADMINS:
+        await bot.send_document(super_admin_id, document=document, caption=caption)
 
 
 async def start_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
@@ -96,7 +97,7 @@ async def start_bot(bot: Bot, dp: Dispatcher, pool: asyncpg.Pool):
             except (TelegramNotFound, TelegramBadRequest):
                 pass
 
-        if Config.SUPER_ADMIN:
+        if Config.SUPER_ADMINS:
             task = asyncio.create_task(
                 super_admin_report_worker(bot, services), name="super_admin_daily_report"
             )
