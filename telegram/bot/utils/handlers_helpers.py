@@ -3,7 +3,7 @@ import html
 import random
 from contextlib import suppress
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Callable
+from typing import Callable, Literal
 
 from aiogram import Bot
 from aiogram.fsm.context import FSMContext
@@ -11,6 +11,7 @@ from aiogram.types import (
     BotCommandScopeChat,
     BufferedInputFile,
     CallbackQuery,
+    Chat,
     InlineKeyboardMarkup,
     Message,
 )
@@ -35,6 +36,15 @@ CURATOR_PARTNERS_PAGE_SIZE = 10
 GROUP_MESSAGE_LIFETIME_SECONDS = 15
 WELCOME_VIDEO_FILENAME = "вид.mp4"
 PLUS_INVITE_IMAGE_FILENAME = "img1.jpeg"
+
+NOTIFICATION_TEXT = """
+<a href='tg://user?id={user_id}'><b>{notification_msg}</b></a>
+{user_username}
+<b>Ник:</b> <i>{user_fullname}</i>
+<b>Время Подписки:</b> <code>{invite_time}</code>
+<b>User ID:</b> <code>{user_id}</code>
+<b>Всего партнёров: {partners_count}</b>
+"""
 
 _open_invite_toggle_locked = False
 
@@ -297,6 +307,163 @@ async def render_partners_list(
     await call.answer()
 
 
+def _format_notification_base(
+    *,
+    notification_msg: str,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+    invite_time: datetime,
+    partners_count: int,
+    invite_link: str | None = None,
+) -> str:
+    formatted = NOTIFICATION_TEXT.format(
+        user_id=user_id,
+        user_username=f"@{username}" if username else "—",
+        invite_time=invite_time.strftime("%d.%m.%Y"),
+        notification_msg=notification_msg,
+        user_fullname=full_name or "—",
+        partners_count=partners_count,
+    )
+    if invite_link:
+        formatted = (
+            formatted
+            + "\n"
+            + f"<b>Использованная ссылка:</b> <code>{html.escape(invite_link)}</code>"
+        )
+    return formatted
+
+
+def format_group_notification_text(
+    *,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+    chat: Chat,
+    partners_count: int,
+    invite_time: datetime,
+    invite_link: str | None,
+) -> str:
+    notification_msg = "🎉У ВАС НОВЫЙ КАНДИДАТ В ЧАТЕ🎉"
+    base = _format_notification_base(
+        notification_msg=notification_msg,
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+        invite_time=invite_time,
+        partners_count=partners_count,
+        invite_link=invite_link,
+    )
+    return (
+        f"<a href='tg://group?id={chat.id}'><b>Группа {chat.full_name}</b></a>\n"
+        + base
+    )
+
+
+def format_bot_notification_text(
+    *,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+    partners_count: int,
+    invite_time: datetime,
+    invite_link: str | None,
+    is_in_table: bool,
+) -> str:
+    notification_msg = "🎉У ВАС НОВЫЙ КАНДИДАТ ПО ССЫЛКЕ🎉"
+    if is_in_table:
+        notification_msg = "ℹ️ ПОЛЬЗОВАТЕЛЬ УЖЕ В ВАШЕЙ БАЗЕ"
+    base = _format_notification_base(
+        notification_msg=notification_msg,
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+        invite_time=invite_time,
+        partners_count=partners_count,
+        invite_link=invite_link,
+    )
+    if is_in_table:
+        return base + "\n\nПользователь уже есть в вашей партнёрской таблице."
+    return base
+
+
+def format_plus_notification_text(
+    *,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+    partners_count: int,
+    invite_time: datetime,
+    invite_link: str | None,
+) -> str:
+    notification_msg = "🎉 У ВАС НОВЫЙ ПЛЮС 🎉"
+    return _format_notification_base(
+        notification_msg=notification_msg,
+        user_id=user_id,
+        username=username,
+        full_name=full_name,
+        invite_time=invite_time,
+        partners_count=partners_count,
+        invite_link=invite_link,
+    )
+
+
+async def send_message_notification(
+    svc: CuratorService,
+    *,
+    curator_id: int,
+    partner_id: int,
+    username: str | None,
+    full_name: str | None,
+    where: Literal["bot", "group", "plus"],
+    chat: Chat | None = None,
+    invite_link: str | None = None,
+    is_in_table: bool = False,
+) -> None:
+    partners_count = await svc.partners_count(curator_id)
+    invite_time = datetime.now(MOSCOW_TZ)
+    text: str | None = None
+
+    if where == "group" and chat is not None:
+        text = format_group_notification_text(
+            user_id=partner_id,
+            username=username,
+            full_name=full_name,
+            chat=chat,
+            partners_count=partners_count,
+            invite_time=invite_time,
+            invite_link=invite_link,
+        )
+    elif where == "plus":
+        text = format_plus_notification_text(
+            user_id=partner_id,
+            username=username,
+            full_name=full_name,
+            partners_count=partners_count,
+            invite_time=invite_time,
+            invite_link=invite_link,
+        )
+    else:
+        text = format_bot_notification_text(
+            user_id=partner_id,
+            username=username,
+            full_name=full_name,
+            partners_count=partners_count,
+            invite_time=invite_time,
+            invite_link=invite_link,
+            is_in_table=is_in_table,
+        )
+
+    try:
+        await svc.bot.send_message(
+            curator_id,
+            text,
+            reply_markup=CuratorKeyboards.notification_actions(partner_id),
+        )
+    except Exception:
+        pass
+
+
 async def notify_curator(
     svc: CuratorService,
     curator_id: int,
@@ -458,9 +625,13 @@ async def promote_user_to_curator(
     inviter_id: int | None = None,
     source_link: str | None = None,
     is_group_member: bool | None = None,
+    notification_context: Literal["bot", "group", "plus"] | None = None,
+    group_chat: Chat | None = None,
 ) -> str:
     await ensure_inviter_record(svc, bot, inviter_id)
+    is_in_table = False
     if inviter_id:
+        is_in_table = await svc.is_partner(inviter_id, user_id)
         await svc.register_partner(inviter_id, user_id)
     link = await svc.promote_to_curator(
         user_id,
@@ -471,17 +642,17 @@ async def promote_user_to_curator(
     )
     await set_curator_commands(bot, user_id)
     if inviter_id:
-        safe_name = html.escape(full_name or "")
-        try:
-            await bot.send_message(
-                inviter_id,
-                (
-                    "Пользователь по вашей ссылке зарегестрировался: "
-                    f"<a href='tg://user?id={user_id}'>{safe_name}</a>."
-                ),
-            )
-        except Exception:
-            pass
+        await send_message_notification(
+            svc,
+            curator_id=inviter_id,
+            partner_id=user_id,
+            username=username,
+            full_name=full_name,
+            where=notification_context or "bot",
+            chat=group_chat,
+            invite_link=source_link,
+            is_in_table=is_in_table,
+        )
     return link
 
 
@@ -525,6 +696,7 @@ __all__ = [
     "GROUP_MESSAGE_LIFETIME_SECONDS",
     "WELCOME_VIDEO_FILENAME",
     "PLUS_INVITE_IMAGE_FILENAME",
+    "NOTIFICATION_TEXT",
     "_deserialize_calendar_state",
     "_get_calendar_state",
     "_get_selected_date",
@@ -555,6 +727,10 @@ __all__ = [
     "lock_open_invite_toggle",
     "notify_curator",
     "promote_user_to_curator",
+    "send_message_notification",
+    "format_bot_notification_text",
+    "format_group_notification_text",
+    "format_plus_notification_text",
     "refresh_calendar_markup",
     "refresh_year_page",
     "render_partners_list",

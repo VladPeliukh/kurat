@@ -1,9 +1,6 @@
 from aiogram import F
 from aiogram.types import Message
 
-from aiogram import F
-from aiogram.types import Message
-
 from ...config import Config
 from ...services.curator_service import CuratorService
 from ...utils.handlers_helpers import (
@@ -28,6 +25,12 @@ async def _promote_by_group_trigger(
 
     svc = CuratorService(message.bot)
 
+    source_data = await svc.get_invite_source(message.from_user.id)
+    if inviter_id is None:
+        inviter_id = (source_data or {}).get("curator_id")
+    if source_data and source_data.get("source_link"):
+        source_link = source_data["source_link"]
+
     if require_open_invite and not await svc.is_open_invite_enabled():
         return
 
@@ -46,6 +49,8 @@ async def _promote_by_group_trigger(
         inviter_id=inviter_id,
         source_link=source_link,
         is_group_member=True,
+        notification_context="plus" if source_link == "self_plus_invite" else "group",
+        group_chat=message.chat,
     )
 
     await answer_with_group_timeout(

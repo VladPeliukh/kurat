@@ -66,6 +66,16 @@ class CuratorKeyboards:
         )
 
     @staticmethod
+    def notification_actions(partner_id: int) -> InlineKeyboardMarkup:
+        builder = InlineKeyboardBuilder()
+        builder.button(
+            text="Написать пользователю", callback_data=f"cur_partner:{partner_id}"
+        )
+        builder.button(text="Меню", callback_data="cur_menu:open")
+        builder.adjust(1)
+        return builder.as_markup()
+
+    @staticmethod
     def format_partner_title(partner: dict) -> str:
         user_id = partner.get("user_id")
         full_name = (partner.get("full_name") or "").strip()
