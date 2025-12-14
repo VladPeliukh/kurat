@@ -9,18 +9,19 @@ from ...keyboards.calendar import AdminCalendarCallback, CalendarView, CuratorCa
 from ...services.curator_service import CuratorService
 from ...states.admin_states import AdminStatsSelection
 from ...utils.curator_stats import prepare_all_curators_stats
-from .calendar_helpers import (
+from ...utils.handlers_helpers import (
     _deserialize_calendar_state,
     _get_calendar_state,
     _get_selected_date,
     _initial_calendar_state,
+    _is_admin,
+    _is_super_admin,
     _refresh_calendar_markup,
     _refresh_year_page,
     _serialize_calendar_state,
     _store_calendar_state,
     _store_selected_date,
 )
-from .helpers import _is_admin, _is_super_admin
 from .router import router
 
 

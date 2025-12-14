@@ -4,10 +4,10 @@ from aiogram.types import CallbackQuery, Message
 
 from ...keyboards import AdminKeyboards
 from ...services.curator_service import CuratorService
-from .helpers import (
+from ...utils.handlers_helpers import (
     _is_admin,
-    _is_super_admin,
     _is_private_chat,
+    _is_super_admin,
     is_open_invite_toggle_locked,
     lock_open_invite_toggle,
 )
