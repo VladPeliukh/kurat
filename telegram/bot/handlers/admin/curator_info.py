@@ -9,7 +9,7 @@ from ...utils.curator_stats import (
     prepare_curator_all_time_stats,
     prepare_curator_info_report,
 )
-from .helpers import _is_admin, _is_private_chat
+from ...utils.handlers_helpers import _is_admin, _is_private_chat
 from .router import router
 
 

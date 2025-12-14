@@ -1,11 +1,11 @@
 from aiogram import Dispatcher
-from . import admin, curator_handlers
+from . import admin, curator
 
 
 def register_handlers(dp: Dispatcher) -> None:
     """Register all bot handlers."""
     dp.include_router(admin.router)
-    dp.include_router(curator_handlers.router)
+    dp.include_router(curator.router)
 
 
 __all__ = ["register_handlers"]

@@ -5,7 +5,7 @@ from aiogram.types import CallbackQuery, Message
 from ...keyboards import AdminKeyboards
 from ...services.curator_service import CuratorService
 from ...states.admin_states import AdminBroadcast
-from .helpers import _is_super_admin, _is_private_chat
+from ...utils.handlers_helpers import _is_private_chat, _is_super_admin
 from .router import router
 
 
