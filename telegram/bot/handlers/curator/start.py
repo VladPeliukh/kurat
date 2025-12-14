@@ -58,6 +58,7 @@ async def start_with_payload(message: Message) -> None:
             full_name=message.from_user.full_name,
             inviter_id=curator_id,
             source_link=source_link,
+            notification_context="bot",
         )
         await message.answer(
             f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",
@@ -78,6 +79,7 @@ async def start_with_payload(message: Message) -> None:
         full_name=message.from_user.full_name,
         inviter_id=curator_id,
         source_link=source_link,
+        notification_context="bot",
     )
     inviter_name = await resolve_inviter_name(svc, curator_id)
     await send_welcome_video(message.bot, message.from_user.id, inviter_name, link)

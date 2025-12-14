@@ -44,6 +44,7 @@ async def request_curation(call: CallbackQuery):
                 full_name=call.from_user.full_name,
                 inviter_id=curator_id,
                 source_link=source_link,
+                notification_context="bot",
             )
             try:
                 await call.message.answer(
@@ -70,6 +71,7 @@ async def request_curation(call: CallbackQuery):
         full_name=call.from_user.full_name,
         inviter_id=curator_id,
         source_link=source_link,
+        notification_context="bot",
     )
     await call.answer()
     try:

@@ -63,6 +63,7 @@ async def verify_captcha(call: CallbackQuery) -> None:
         full_name=call.from_user.full_name,
         inviter_id=inviter_id,
         source_link=(source_info or {}).get("source_link"),
+        notification_context="bot",
     )
     inviter_name = await resolve_inviter_name(svc, inviter_id)
     await send_welcome_video(call.bot, call.from_user.id, inviter_name, link)
