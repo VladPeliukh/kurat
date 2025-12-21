@@ -422,7 +422,6 @@ async def send_message_notification(
 ) -> None:
     partners_count = await svc.partners_count(curator_id)
     invite_time = datetime.now(MOSCOW_TZ)
-    text: str | None = None
 
     if where == "group" and chat is not None:
         text = format_group_notification_text(

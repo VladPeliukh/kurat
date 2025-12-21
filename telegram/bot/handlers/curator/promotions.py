@@ -1,3 +1,5 @@
+import asyncio
+
 from aiogram import F
 from aiogram.types import Message
 
@@ -34,12 +36,6 @@ async def _promote_by_group_trigger(
     if require_open_invite and not await svc.is_open_invite_enabled():
         return
 
-    if await svc.is_curator(message.from_user.id):
-        await answer_with_group_timeout(
-            message, "Вы уже являетесь зарегестрированным пользователем."
-        )
-        return
-
     link = await promote_user_to_curator(
         svc,
         message.bot,
@@ -52,18 +48,21 @@ async def _promote_by_group_trigger(
         notification_context="plus" if source_link == "self_plus_invite" else "group",
         group_chat=message.chat,
     )
-
-    await answer_with_group_timeout(
-        message,
-        (
-            "Теперь вы зарегестрированы. Ваша персональная ссылка:\n"
-            f"{link}\n\nМеню доступно в личном чате с ботом."
-        ),
-        disable_web_page_preview=True,
+    
+    
+    mess_to_delete = await message.answer_photo(
+        photo="AgACAgIAAxkDAAMWaTmbji9m9l5D9vgFiUJIaixUcz4AAvYRaxsU18lJiu4PT7wgLD4BAAMCAANtAAM2BA",
+        caption="Теперь вы зарегестрированы. Ваша персональная ссылка:\n"
+            f"{link}\n\nМеню доступно в личном чате с ботом.",
+        disable_web_page_preview=True
+        
     )
 
     if source_link == "self_plus_invite":
         await send_plus_invite_package(message.bot, message.from_user.id, link)
+        
+    await asyncio.sleep(15)
+    await mess_to_delete.delete()
 
 
 @router.message(
