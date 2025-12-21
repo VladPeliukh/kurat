@@ -112,6 +112,7 @@ async def start_without_payload(message: Message) -> None:
             username=message.from_user.username,
             full_name=message.from_user.full_name,
             inviter_id=None,
+            notification_context="bot"
         )
         await message.answer(
             f"Теперь вы зарегестрированы. Ваша персональная ссылка:\n{link}",

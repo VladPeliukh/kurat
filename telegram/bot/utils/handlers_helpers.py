@@ -175,9 +175,9 @@ async def get_calendar_state(state: FSMContext, target: str) -> CalendarState:
 async def store_calendar_state(
     state: FSMContext,
     target: str,
-    calendar_state: CalendarState,
+    calendar_state: dict,
 ) -> None:
-    await state.update_data(**{f"{target}_calendar": serialize_calendar_state(calendar_state)})
+    await state.update_data(**{f"{target}_calendar": calendar_state})
 
 
 async def store_selected_date(
@@ -625,7 +625,7 @@ async def promote_user_to_curator(
     inviter_id: int | None = None,
     source_link: str | None = None,
     is_group_member: bool | None = None,
-    notification_context: Literal["bot", "group", "plus"] | None = None,
+    notification_context: Literal["bot", "group", "plus"],
     group_chat: Chat | None = None,
 ) -> str:
     await ensure_inviter_record(svc, bot, inviter_id)
@@ -648,7 +648,7 @@ async def promote_user_to_curator(
             partner_id=user_id,
             username=username,
             full_name=full_name,
-            where=notification_context or "bot",
+            where=notification_context,
             chat=group_chat,
             invite_link=source_link,
             is_in_table=is_in_table,
